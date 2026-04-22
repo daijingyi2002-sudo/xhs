@@ -1,0 +1,32 @@
+{
+  "name": "xhs-job-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI job-search agent and interview knowledge base monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*",
+    "workers/*"
+  ],
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @xhs/web",
+    "dev:web": "npm run dev --workspace @xhs/web",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}

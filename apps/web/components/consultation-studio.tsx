@@ -1,0 +1,333 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useRef, useState } from "react";
+import type { ConsultationState } from "@xhs/ai";
+
+type Message = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+};
+
+type StreamEvent = Record<string, unknown>;
+
+const focusLabels: Record<string, string> = {
+  city_preference: "城市",
+  company_preference: "公司",
+  project_depth: "项目",
+  ai_understanding: "AI / LLM",
+  product_method: "方法论",
+  data_analysis: "数据",
+  user_research: "研究",
+  role_concern: "顾虑"
+};
+
+function upsertAssistantMessage(messages: Message[], id: string, delta: string): Message[] {
+  const existing = messages.find((message) => message.id === id);
+
+  if (!existing) {
+    const nextMessage: Message = { id, role: "assistant", content: delta };
+    return [...messages, nextMessage];
+  }
+
+  return messages.map((message) =>
+    message.id === id ? { ...message, content: `${message.content}${delta}` } : message
+  );
+}
+
+async function consumeJsonLines(response: Response, onEvent: (event: StreamEvent) => void) {
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error ?? "请求失败。");
+  }
+
+  if (!response.body) {
+    throw new Error("服务端没有返回可读取的流。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      onEvent(JSON.parse(trimmed) as StreamEvent);
+    }
+  }
+
+  if (buffer.trim()) {
+    onEvent(JSON.parse(buffer) as StreamEvent);
+  }
+}
+
+export function ConsultationStudio() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [draft, setDraft] = useState("");
+  const [userNote, setUserNote] = useState("");
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [session, setSession] = useState<ConsultationState | null>(null);
+  const [statusMessage, setStatusMessage] = useState(
+    "上传简历或补充背景后，系统会先做基于原文的事实提取，再生成第 1 轮追问。"
+  );
+  const [errorMessage, setErrorMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+
+  const canStart = !busy && (!!resumeFile || userNote.trim().length > 0);
+  const currentRound = session?.done ? session.maxRounds : session?.round ?? 0;
+
+  const snapshot = useMemo(() => {
+    if (!session) {
+      return [
+        resumeFile ? `已选择简历：${resumeFile.name}` : "还没有上传简历。",
+        userNote.trim()
+          ? `补充说明：${userNote.trim().slice(0, 48)}`
+          : "可选补充：目标城市、目标公司、经历背景，或你当前最担心的问题。",
+        "系统在解析阶段只会提取材料里明确出现的信息，不会提前做岗位判断。"
+      ];
+    }
+
+    return [
+      `轮次：${currentRound} / ${session.maxRounds}`,
+      `当前聚焦：${focusLabels[session.currentFocus] ?? session.currentFocus}`,
+      `材料摘要：${session.profileSummary}`,
+      `已确认信息：${session.strengths.slice(0, 2).join(" | ") || "暂未提取到足够信息"}`,
+      `待补充信息：${session.gaps.slice(0, 2).join(" | ") || "当前没有明显待补充项"}`
+    ];
+  }, [currentRound, resumeFile, session, userNote]);
+
+  async function startConsultation() {
+    if (!canStart) return;
+
+    setBusy(true);
+    setErrorMessage("");
+    setMessages([]);
+    setSession(null);
+    setStatusMessage("已收到材料，正在基于原文做解析，并生成第 1 轮追问...");
+    transcriptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    try {
+      const formData = new FormData();
+      if (resumeFile) {
+        formData.append("resume", resumeFile);
+      }
+      if (userNote.trim()) {
+        formData.append("userNote", userNote.trim());
+      }
+
+      const assistantId = "assistant-round-1";
+      const response = await fetch("/api/consultation/start", {
+        method: "POST",
+        body: formData
+      });
+
+      await consumeJsonLines(response, (event) => {
+        if (event.type === "status") {
+          setStatusMessage(String(event.message ?? ""));
+          return;
+        }
+
+        if (event.type === "question_delta") {
+          setMessages((current) => upsertAssistantMessage(current, assistantId, String(event.delta ?? "")));
+          return;
+        }
+
+        if (event.type === "ready") {
+          setSession(event.state as ConsultationState);
+          setStatusMessage("第 1 轮问题已生成，下一轮会严格基于你的回答和已确认信息继续追问。");
+          return;
+        }
+
+        if (event.type === "error") {
+          throw new Error(String(event.message ?? "启动咨询失败。"));
+        }
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "启动咨询失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitAnswer() {
+    if (!session || !draft.trim() || busy) return;
+
+    const answer = draft.trim();
+    const answerRound = session.round;
+    const nextAssistantId = `assistant-round-${Math.min(answerRound + 1, session.maxRounds)}`;
+
+    setBusy(true);
+    setErrorMessage("");
+    setDraft("");
+    setMessages((current) => [...current, { id: `user-round-${answerRound}`, role: "user", content: answer }]);
+
+    try {
+      const response = await fetch("/api/consultation/answer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          state: session,
+          answer
+        })
+      });
+
+      await consumeJsonLines(response, (event) => {
+        if (event.type === "status") {
+          setStatusMessage(String(event.message ?? ""));
+          return;
+        }
+
+        if (event.type === "question_delta") {
+          setMessages((current) => upsertAssistantMessage(current, nextAssistantId, String(event.delta ?? "")));
+          return;
+        }
+
+        if (event.type === "ready") {
+          const nextState = event.state as ConsultationState;
+          setSession(nextState);
+          setStatusMessage(`第 ${nextState.round} 轮问题已生成。`);
+          return;
+        }
+
+        if (event.type === "complete") {
+          const nextState = event.state as ConsultationState;
+          setSession(nextState);
+          setStatusMessage("三轮追问已完成，可以继续进入推荐岗位和匹配分析。");
+          const finalSummary = nextState.finalSummary;
+          if (typeof finalSummary === "string") {
+            setMessages((current) => [...current, { id: "consultation-summary", role: "assistant", content: finalSummary }]);
+          }
+          return;
+        }
+
+        if (event.type === "error") {
+          throw new Error(String(event.message ?? "继续咨询失败。"));
+        }
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "继续咨询失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="consultation-studio">
+      <div className="consultation-head">
+        <p className="section-eyebrow">Hosted Consultation</p>
+        <h3>系统会先理解上传材料里明确出现的事实，再连续生成三轮动态追问。</h3>
+      </div>
+
+      <label className="upload-strip">
+        <span>上传简历</span>
+        <input
+          type="file"
+          accept=".pdf,.docx,.txt,.md"
+          disabled={busy}
+          onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
+        />
+      </label>
+
+      {resumeFile ? (
+        <div className="status-chip status-chip-success">
+          <strong>上传成功</strong>
+          <span>{resumeFile.name}</span>
+        </div>
+      ) : null}
+
+      <div className="composer">
+        <textarea
+          value={userNote}
+          onChange={(event) => setUserNote(event.target.value)}
+          placeholder="可选补充：目标城市、公司偏好、经历背景，或你当前最担心的问题。"
+          rows={3}
+          disabled={busy}
+        />
+        <button
+          type="button"
+          className={`primary-button ${busy && !session ? "is-loading" : ""}`}
+          onClick={startConsultation}
+          disabled={!canStart}
+          aria-busy={busy && !session}
+        >
+          {busy && !session ? "正在生成第 1 轮问题..." : "开始第 1 轮追问"}
+        </button>
+      </div>
+
+      <div className="snapshot-panel">
+        <p className="section-eyebrow">Current Read</p>
+        <ul>
+          {snapshot.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="status-strip">
+        <strong>状态</strong>
+        <span>{statusMessage}</span>
+      </div>
+
+      {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
+
+      <div className="transcript-panel" ref={transcriptRef}>
+        <p className="section-eyebrow">Live Transcript</p>
+        <div className="chat-log">
+          {messages.length ? (
+            messages.map((message) => (
+              <article key={message.id} className={`chat-row chat-row-${message.role}`}>
+                <span className="chat-role">{message.role === "assistant" ? "Agent" : "你"}</span>
+                <p>{message.content}</p>
+              </article>
+            ))
+          ) : (
+            <p className="helper-copy">生成中的问题和你的回答会显示在这里。</p>
+          )}
+        </div>
+      </div>
+
+      {session && !session.done ? (
+        <div className="composer">
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="输入这一轮回答。你给的信息越具体，下一轮问题就会越精准。"
+            rows={4}
+            disabled={busy}
+          />
+          <button type="button" className="primary-button" onClick={submitAnswer} disabled={busy || !draft.trim()}>
+            {busy ? "正在生成下一轮问题..." : `提交第 ${session.round} 轮回答`}
+          </button>
+        </div>
+      ) : null}
+
+      {session?.done ? (
+        <div className="status-card">
+          <p className="section-eyebrow">Next Step</p>
+          <h4>三轮追问已经完成，可以继续进入推荐岗位和匹配分析。</h4>
+          <div className="pill-row">
+            <span className="pill">画像已更新</span>
+            <span className="pill">可进入 Top 5 推荐</span>
+            <span className="pill">已解锁模拟面试</span>
+          </div>
+          <Link href="/jobs" className="primary-button">
+            查看推荐岗位
+          </Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}
