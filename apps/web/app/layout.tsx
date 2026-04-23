@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Cormorant_Garamond, IBM_Plex_Sans } from "next/font/google";
-import Link from "next/link";
-import { AppFrame, SiteHeader } from "@xhs/ui";
-import { NavLinks } from "../components/nav-links";
+import { AppShell } from "../components/app-shell";
 import "./globals.css";
 
 const display = Cormorant_Garamond({
@@ -26,21 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="zh-CN">
       <body className={`${display.variable} ${body.variable}`}>
-        <AppFrame>
-          <div className="site-shell">
-            <SiteHeader
-              actions={
-                <>
-                  <NavLinks />
-                  <Link href="/login" className="ghost-button">
-                    登录
-                  </Link>
-                </>
-              }
-            />
-            {children}
-          </div>
-        </AppFrame>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

@@ -74,12 +74,12 @@ export function InterviewStudio({ lead }: { lead: JobLead }) {
                 placeholder="这里输入你的回答。下一轮问题会根据你的本轮内容继续生成。"
               />
               <button type="button" className="primary-button" onClick={submitAnswer}>
-                提交这一轮
+                提交本轮回答
               </button>
             </div>
 
             <div className="feedback-panel">
-              <p className="section-eyebrow">Turn Log</p>
+              <p className="section-eyebrow">回答记录</p>
               {answers.length === 0 ? (
                 <p className="empty-copy">还没有上一轮反馈。先开始答第 1 轮。</p>
               ) : (
@@ -97,7 +97,7 @@ export function InterviewStudio({ lead }: { lead: JobLead }) {
       ) : (
         <div className="summary-board">
           <div className="summary-card">
-            <p className="section-eyebrow">Final Summary</p>
+            <p className="section-eyebrow">结果总结</p>
             <h4>{summary?.overallTakeaway}</h4>
           </div>
           <div className="summary-grid">

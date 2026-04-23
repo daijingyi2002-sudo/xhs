@@ -7,9 +7,9 @@ export default function PlazaPage() {
     <main className="page-stack">
       <Reveal>
         <SectionBlock
-          eyebrow="Career Plaza"
-          title="广场只做发现, 不做喧宾夺主。"
-          description="这里分成推荐岗位和面试经验内容两个栏目。它是补充层，不是主战场，所以所有详情都要能把用户再推回岗位分析或模拟面试。"
+          eyebrow="求职广场"
+          title="浏览岗位和面试经验，随时回到主流程继续准备。"
+          description="这里可以快速看岗位线索和面试经验内容，感兴趣时再进入岗位分析或模拟面试。"
         >
           <div className="plaza-tabs">
             <span className="pill">推荐岗位</span>

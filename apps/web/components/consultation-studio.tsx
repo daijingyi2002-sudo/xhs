@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import type { ConsultationState } from "@xhs/ai";
+import { saveConsultationState } from "../lib/consultation-session";
 
 type Message = {
   id: string;
@@ -72,13 +73,14 @@ async function consumeJsonLines(response: Response, onEvent: (event: StreamEvent
 }
 
 export function ConsultationStudio() {
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [userNote, setUserNote] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [session, setSession] = useState<ConsultationState | null>(null);
   const [statusMessage, setStatusMessage] = useState(
-    "上传简历或补充背景后，系统会先做基于原文的事实提取，再生成第 1 轮追问。"
+    "上传简历或补充背景后，我们会先开始第 1 轮咨询。"
   );
   const [errorMessage, setErrorMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -94,7 +96,7 @@ export function ConsultationStudio() {
         userNote.trim()
           ? `补充说明：${userNote.trim().slice(0, 48)}`
           : "可选补充：目标城市、目标公司、经历背景，或你当前最担心的问题。",
-        "系统在解析阶段只会提取材料里明确出现的信息，不会提前做岗位判断。"
+        "开始后会先生成第 1 轮问题，再根据你的回答继续追问。"
       ];
     }
 
@@ -114,7 +116,7 @@ export function ConsultationStudio() {
     setErrorMessage("");
     setMessages([]);
     setSession(null);
-    setStatusMessage("已收到材料，正在基于原文做解析，并生成第 1 轮追问...");
+    setStatusMessage("已收到材料，正在生成第 1 轮问题...");
     transcriptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
     try {
@@ -145,7 +147,7 @@ export function ConsultationStudio() {
 
         if (event.type === "ready") {
           setSession(event.state as ConsultationState);
-          setStatusMessage("第 1 轮问题已生成，下一轮会严格基于你的回答和已确认信息继续追问。");
+          setStatusMessage("第 1 轮问题已生成，继续回答即可。");
           return;
         }
 
@@ -224,11 +226,17 @@ export function ConsultationStudio() {
     }
   }
 
+  function goToRecommendations() {
+    if (!session) return;
+    saveConsultationState(session);
+    router.push("/jobs");
+  }
+
   return (
     <div className="consultation-studio">
       <div className="consultation-head">
-        <p className="section-eyebrow">Hosted Consultation</p>
-        <h3>系统会先理解上传材料里明确出现的事实，再连续生成三轮动态追问。</h3>
+        <p className="section-eyebrow">咨询入口</p>
+        <h3>先说你的背景，我们马上开始第一轮咨询。</h3>
       </div>
 
       <label className="upload-strip">
@@ -268,7 +276,7 @@ export function ConsultationStudio() {
       </div>
 
       <div className="snapshot-panel">
-        <p className="section-eyebrow">Current Read</p>
+        <p className="section-eyebrow">已获取信息</p>
         <ul>
           {snapshot.map((item) => (
             <li key={item}>{item}</li>
@@ -284,7 +292,7 @@ export function ConsultationStudio() {
       {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
 
       <div className="transcript-panel" ref={transcriptRef}>
-        <p className="section-eyebrow">Live Transcript</p>
+        <p className="section-eyebrow">对话记录</p>
         <div className="chat-log">
           {messages.length ? (
             messages.map((message) => (
@@ -294,7 +302,7 @@ export function ConsultationStudio() {
               </article>
             ))
           ) : (
-            <p className="helper-copy">生成中的问题和你的回答会显示在这里。</p>
+            <p className="helper-copy">开始后，这里会显示问题和你的回答。</p>
           )}
         </div>
       </div>
@@ -316,16 +324,16 @@ export function ConsultationStudio() {
 
       {session?.done ? (
         <div className="status-card">
-          <p className="section-eyebrow">Next Step</p>
-          <h4>三轮追问已经完成，可以继续进入推荐岗位和匹配分析。</h4>
+          <p className="section-eyebrow">下一步</p>
+          <h4>咨询已完成，可以继续看推荐岗位和岗位分析。</h4>
           <div className="pill-row">
             <span className="pill">画像已更新</span>
-            <span className="pill">可进入 Top 5 推荐</span>
-            <span className="pill">已解锁模拟面试</span>
+            <span className="pill">可查看 Top 5 推荐</span>
+            <span className="pill">可继续模拟面试</span>
           </div>
-          <Link href="/jobs" className="primary-button">
+          <button type="button" className="primary-button" onClick={goToRecommendations}>
             查看推荐岗位
-          </Link>
+          </button>
         </div>
       ) : null}
     </div>

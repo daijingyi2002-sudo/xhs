@@ -21,7 +21,7 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
   return (
     <header className="site-header">
       <div>
-        <p className="site-kicker">AI Job Search Console</p>
+        <p className="site-kicker">AI 求职助手</p>
         <h1 className="site-wordmark">求职 Agent</h1>
       </div>
       <div className="site-header-actions">{actions}</div>
@@ -70,6 +70,8 @@ export function MetricCard({
 export function LeadCard({
   company,
   title,
+  city,
+  sourceLabel,
   score,
   summary,
   reasons,
@@ -78,6 +80,8 @@ export function LeadCard({
 }: {
   company: string;
   title: string;
+  city?: string;
+  sourceLabel?: string;
   score: number;
   summary: string;
   reasons: string[];
@@ -94,6 +98,10 @@ export function LeadCard({
         </span>
       </div>
       <h3 className="lead-title">{title}</h3>
+      <p className="lead-summary">
+        {city ? `${city} · ` : ""}
+        {sourceLabel ?? "高置信岗位线索"}
+      </p>
       <p className="lead-summary">{summary}</p>
       <ul className="lead-reasons">
         {reasons.map((reason) => (
@@ -102,7 +110,7 @@ export function LeadCard({
       </ul>
       <p className="lead-risk">风险提示: {riskReminder}</p>
       <span className="lead-action">
-        进入分析
+        查看匹配分析
         <ArrowRight size={16} />
       </span>
     </a>

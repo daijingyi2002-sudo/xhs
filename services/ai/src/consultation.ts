@@ -1,4 +1,4 @@
-import mammoth from "mammoth";
+﻿import mammoth from "mammoth";
 import OpenAI from "openai";
 import { getData } from "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
@@ -148,6 +148,11 @@ function getOpenAIClient() {
   });
 }
 
+function logConsultationPerf(stage: string, meta?: Record<string, unknown>) {
+  const suffix = meta ? ` ${JSON.stringify(meta)}` : "";
+  console.info(`[consultation-perf] ${stage}${suffix}`);
+}
+
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -232,6 +237,15 @@ async function createStructuredResponse<T>(input: {
   }
 
   try {
+    const startedAt = Date.now();
+    logConsultationPerf("prompt build done", {
+      scope: "structured",
+      model: input.model
+    });
+    logConsultationPerf("llm request start", {
+      scope: "structured",
+      model: input.model
+    });
     const response = await client.responses.create({
       model: input.model,
       input: [
@@ -248,6 +262,11 @@ async function createStructuredResponse<T>(input: {
 
     const outputText = typeof response.output_text === "string" ? response.output_text : "";
     const parsed = JSON.parse(extractJsonBlock(outputText));
+    logConsultationPerf("llm response done", {
+      scope: "structured",
+      model: input.model,
+      durationMs: Date.now() - startedAt
+    });
     return input.schema.parse(parsed);
   } catch {
     return input.fallback;
@@ -421,6 +440,19 @@ async function generateQuestionWithOpenAI(state: ConsultationState) {
   }
 
   try {
+    const startedAt = Date.now();
+    logConsultationPerf("prompt build done", {
+      scope: "question-single",
+      round: state.round,
+      focus: state.currentFocus,
+      model: config.questionModel
+    });
+    logConsultationPerf("llm request start", {
+      scope: "question-single",
+      round: state.round,
+      focus: state.currentFocus,
+      model: config.questionModel
+    });
     const response = await client.responses.create({
       model: config.questionModel,
       input: [
@@ -434,6 +466,14 @@ async function generateQuestionWithOpenAI(state: ConsultationState) {
           content: buildQuestionPrompt(state)
         }
       ]
+    });
+
+    logConsultationPerf("llm response done", {
+      scope: "question-single",
+      round: state.round,
+      focus: state.currentFocus,
+      model: config.questionModel,
+      durationMs: Date.now() - startedAt
     });
 
     return normalizeWhitespace(response.output_text ?? "");
@@ -454,6 +494,19 @@ async function streamQuestionWithOpenAI(state: ConsultationState): Promise<Strea
   }
 
   try {
+    const startedAt = Date.now();
+    logConsultationPerf("prompt build done", {
+      scope: "question-stream",
+      round: state.round,
+      focus: state.currentFocus,
+      model: config.questionModel
+    });
+    logConsultationPerf("llm request start", {
+      scope: "question-stream",
+      round: state.round,
+      focus: state.currentFocus,
+      model: config.questionModel
+    });
     const stream = await client.responses.create({
       model: config.questionModel,
       stream: true,
@@ -477,6 +530,16 @@ async function streamQuestionWithOpenAI(state: ConsultationState): Promise<Strea
 
         for await (const event of stream) {
           if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+            if (!emitted) {
+              logConsultationPerf("llm response done", {
+                scope: "question-stream",
+                round: state.round,
+                focus: state.currentFocus,
+                model: config.questionModel,
+                durationMs: Date.now() - startedAt,
+                firstDelta: true
+              });
+            }
             emitted = true;
             yield event.delta;
           }

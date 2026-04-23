@@ -2,9 +2,8 @@ import { getJobLead } from "@xhs/ai";
 import { notFound } from "next/navigation";
 import { MockInterviewDashboard } from "../../../components/mock-interview-dashboard";
 
-export default async function InterviewPage({ params }: { params: Promise<{ jobId: string }> }) {
-  const { jobId } = await params;
-  const lead = getJobLead(jobId);
+export default function InterviewDemoPage() {
+  const lead = getJobLead("lead-bytedance-strategy");
 
   if (!lead) {
     notFound();

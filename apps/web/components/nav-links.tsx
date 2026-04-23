@@ -2,11 +2,11 @@ import Link from "next/link";
 
 const links = [
   { href: "/", label: "首页" },
-  { href: "/jobs", label: "岗位线索" },
-  { href: "/plaza", label: "职场广场" },
+  { href: "/jobs", label: "职位" },
+  { href: "/interview/demo", label: "模拟面试" },
   { href: "/resume-lab", label: "简历实验室" },
-  { href: "/history", label: "历史记录" },
-  { href: "/admin", label: "看板" }
+  { href: "/plaza", label: "广场" },
+  { href: "/history", label: "历史" }
 ];
 
 export function NavLinks() {

@@ -5,9 +5,7 @@ export default function LoginPage() {
         <div className="detail-panel">
           <p className="section-eyebrow">Email + Password</p>
           <h2 className="detail-title">保留你的简历、面试记录和优化历史。</h2>
-          <p className="detail-copy">
-            Phase 1 登录只做最小闭环，目标不是做一套大而全的账户系统，而是让用户的准备过程能被连续保存下来。
-          </p>
+          <p className="detail-copy">登录后可以继续查看咨询记录、岗位分析、模拟面试和简历改写结果。</p>
         </div>
         <form className="consultation-studio">
           <label className="composer">
@@ -21,7 +19,7 @@ export default function LoginPage() {
           <button type="submit" className="primary-button">
             登录并继续
           </button>
-          <p className="helper-copy">当前为演示骨架，后续将接入 Supabase Auth。</p>
+          <p className="helper-copy">登录后会回到你上次停留的求职流程。</p>
         </form>
       </section>
     </main>

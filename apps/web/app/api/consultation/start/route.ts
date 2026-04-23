@@ -28,6 +28,8 @@ function createEventStream(
 }
 
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now();
+  console.info("[consultation-perf] request start", JSON.stringify({ route: "start" }));
   const formData = await request.formData();
   const resume = formData.get("resume");
   const userNote = String(formData.get("userNote") ?? "").trim();
@@ -84,6 +86,14 @@ export async function POST(request: Request) {
         currentQuestion: question.trim()
       }
     });
+    console.info(
+      "[consultation-perf] route done",
+      JSON.stringify({
+        route: "start",
+        source,
+        durationMs: Date.now() - requestStartedAt
+      })
+    );
   });
 
   return new Response(stream, {

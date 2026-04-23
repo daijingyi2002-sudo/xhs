@@ -6,7 +6,7 @@ export default function AdminPage() {
     <main className="page-stack">
       <section className="admin-grid">
         <MetricCard label="总帖子数" value={`${adminSnapshot.totalPosts}`} detail="当前看板只保留 owner 真正需要的运行态信号。" />
-        <MetricCard label="总岗位数" value={`${adminSnapshot.totalRoles}`} detail="Phase 1 锁定一个 hero role，先把密度做对。" />
+        <MetricCard label="总岗位数" value={`${adminSnapshot.totalRoles}`} detail="当前岗位池聚焦 AI 产品经理，便于观察岗位密度和质量。" />
         <MetricCard label="监控重点" value="QR / 置信度" detail="后续重点盯 source URL 完整率和岗位线索置信度。" tone="dark" />
       </section>
 
