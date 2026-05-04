@@ -1,10 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import type { FitAnalysisResponse } from "@xhs/domain";
-import { ConfidenceBadge, MetricCard, Reveal, SectionBlock } from "@xhs/ui";
+import { type ReactNode, useEffect, useState } from "react";
+import type { FitAnalysisAbilityItem, FitAnalysisResponse } from "@xhs/domain";
+import {
+  ArrowLeft,
+  Bell,
+  BriefcaseBusiness,
+  Building2,
+  CheckCircle2,
+  ClipboardList,
+  FlaskConical,
+  History,
+  Home,
+  MapPin,
+  MessageCircle,
+  Plus,
+  Radar,
+  Search,
+  TriangleAlert
+} from "lucide-react";
 import { loadConsultationState } from "../lib/consultation-session";
+import { buildAuthenticatedHeaders } from "../lib/api-auth-fetch";
+import { AccountMenu } from "./account-menu";
+import { BrandMark } from "./brand-mark";
 
 type LoadState =
   | { status: "loading" }
@@ -12,27 +31,309 @@ type LoadState =
   | { status: "empty" }
   | { status: "error"; message: string };
 
-const statusLabels: Record<string, string> = {
-  strong: "强",
-  medium: "中",
-  weak: "弱"
+type AbilityStatus = FitAnalysisAbilityItem["status"];
+
+const navItems = [
+  { href: "/", icon: Home, label: "首页 Home" },
+  { href: "/jobs", icon: BriefcaseBusiness, label: "职位 Jobs", active: true },
+  { href: "/interview/demo", icon: MessageCircle, label: "模拟面试 Interview" },
+  { href: "/resume-lab", icon: FlaskConical, label: "简历实验室 Resume Lab" },
+  { href: "/plaza", icon: MessageCircle, label: "广场 Plaza" },
+  { href: "/history", icon: History, label: "历史 History" }
+];
+
+const statusLabels: Record<AbilityStatus, string> = {
+  strong: "超过 Exceeds",
+  medium: "达标 Meets",
+  weak: "差距 Gap"
 };
 
-const directionLabels: Record<string, string> = {
-  ai: "AI",
-  tool: "工具",
-  content: "内容",
-  commerce: "电商",
-  community: "社区",
-  general: "通用产品"
-};
+function JobsChrome({ children }: { children: ReactNode }) {
+  return (
+    <div className="jobs-shell">
+      <header className="jobs-mobile-bar">
+        <BrandMark size="sm" />
+        <AccountMenu variant="compact" />
+        <strong>职业催化剂 Career Catalyst</strong>
+      </header>
 
-const workStyleLabels: Record<string, string> = {
-  "big-tech": "大厂",
-  "growth-stage": "成长型团队",
-  "high-intensity": "高节奏",
-  stability: "稳定交付"
-};
+      <aside className="jobs-sidebar">
+        <div className="jobs-sidebar-header">
+          <BrandMark size="lg" />
+          <AccountMenu variant="jobs" />
+          <div>
+            <strong>职业催化剂 Career Catalyst</strong>
+            <span>AI 专家导师 Expert Mentor AI</span>
+          </div>
+        </div>
+
+        <nav className="jobs-nav" aria-label="Job analysis">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} className={`jobs-nav-item ${item.active ? "is-active" : ""}`}>
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="jobs-sidebar-footer">
+          <Link href="/" className="jobs-new-consultation">
+            <Plus size={18} />
+            新咨询 New Consultation
+          </Link>
+        </div>
+      </aside>
+
+      <main className="jobs-main">
+        <div className="jobs-topbar">
+          <div>
+            <span>Role Intelligence</span>
+            <strong>职位匹配分析</strong>
+          </div>
+          <div className="jobs-topbar-status">
+            <Bell size={18} />
+            <span>高置信岗位线索</span>
+          </div>
+        </div>
+        {children}
+      </main>
+    </div>
+  );
+}
+
+function JobsStatusPanel({
+  eyebrow,
+  title,
+  description,
+  action
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
+  return (
+    <JobsChrome>
+      <section className="jobs-status-panel">
+        <p>{eyebrow}</p>
+        <h1>{title}</h1>
+        <span>{description}</span>
+        {action ? <div className="jobs-status-actions">{action}</div> : null}
+      </section>
+    </JobsChrome>
+  );
+}
+
+function ScoreRing({ score }: { score: number }) {
+  const radius = 38;
+  const circumference = 2 * Math.PI * radius;
+  const normalizedScore = Math.max(0, Math.min(100, score));
+  const offset = circumference - (normalizedScore / 100) * circumference;
+
+  return (
+    <div className="jobs-score-ring jobs-score-ring-lg" aria-label={`匹配分数 ${normalizedScore}`}>
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r={radius} />
+        <circle cx="50" cy="50" r={radius} strokeDasharray={circumference} strokeDashoffset={offset} />
+      </svg>
+      <strong>{normalizedScore}</strong>
+    </div>
+  );
+}
+
+function getRequiredMarker(item: FitAnalysisAbilityItem) {
+  if (item.status === "strong") {
+    return Math.max(62, Math.min(88, item.score - 12));
+  }
+
+  if (item.status === "medium") {
+    return item.score;
+  }
+
+  return Math.min(95, Math.max(item.score + 20, 72));
+}
+
+function EvidenceChip({ children }: { children: ReactNode }) {
+  return (
+    <span className="jobs-evidence-chip">
+      <Search size={14} />
+      {children}
+    </span>
+  );
+}
+
+function AnalysisContent({ data }: { data: FitAnalysisResponse }) {
+  return (
+    <div className="jobs-detail-page">
+      <section className="jobs-detail-header">
+        <div>
+          <div className="jobs-detail-kicker">
+            <span>职位分析 ROLE ANALYSIS</span>
+            <small>Ref: {data.jobId}</small>
+          </div>
+          <h1>{data.roleTitle}</h1>
+          <p className="jobs-detail-company">
+            <Building2 size={20} />
+            {data.company}
+            <i />
+            <MapPin size={20} />
+            {data.city}
+          </p>
+          <p className="jobs-detail-summary">{data.overall_summary}</p>
+        </div>
+
+        <aside className="jobs-detail-score-card">
+          <ScoreRing score={data.overallScore} />
+          <div>
+            <strong>高度匹配 Strong Alignment</strong>
+            <span>
+              基于已完成的求职意向对话、简历证据与该岗位线索，系统生成当前匹配判断。
+            </span>
+          </div>
+        </aside>
+      </section>
+
+      <section className="jobs-detail-grid">
+        <div className="jobs-detail-stack">
+          <article className="jobs-analysis-section">
+            <div className="jobs-section-title">
+              <CheckCircle2 size={22} />
+              <h2>优势总结 Advantage Summary</h2>
+            </div>
+            <ul className="jobs-analysis-rich-list">
+              {data.strength_analysis.map((item) => (
+                <li key={item}>
+                  <CheckCircle2 size={20} />
+                  <div>
+                    <p>{item}</p>
+                  </div>
+                </li>
+              ))}
+              {data.whyRecommended.map((item) => (
+                <li key={`${item.source}-${item.title}`}>
+                  <CheckCircle2 size={20} />
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.detail}</p>
+                    <EvidenceChip>
+                      证据来源：{item.source === "resume" ? "简历 Resume" : "求职意向对话 Consultation"}
+                      {item.weakEvidence ? "，证据偏弱" : ""}
+                    </EvidenceChip>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </article>
+
+          <article className="jobs-analysis-section jobs-analysis-section-alert">
+            <div className="jobs-section-title">
+              <TriangleAlert size={22} />
+              <h2>识别差距 Identified Gaps</h2>
+            </div>
+            <ul className="jobs-analysis-rich-list">
+              {data.gap_analysis.map((gap) => (
+                <li key={gap}>
+                  <TriangleAlert size={20} />
+                  <div>
+                    <p>{gap}</p>
+                  </div>
+                </li>
+              ))}
+              {data.gaps.map((gap) => (
+                <li key={gap}>
+                  <TriangleAlert size={20} />
+                  <div>
+                    <p>{gap}</p>
+                    <EvidenceChip>建议在模拟面试和简历优化中优先补强</EvidenceChip>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </article>
+        </div>
+
+        <aside className="jobs-analysis-section jobs-gap-map">
+          <div className="jobs-section-title jobs-section-title-spread">
+            <h2>JD 差距图谱 JD Gap Map</h2>
+            <Radar size={22} />
+          </div>
+
+          <div className="jobs-skill-legend">
+            <span>
+              <i className="jobs-legend-user" /> 您的水平 Your Level
+            </span>
+            <span>
+              <i className="jobs-legend-required" /> 要求水平 Required Level
+            </span>
+          </div>
+
+          <div className="jobs-skill-stack">
+            {data.abilityMatch.map((item) => {
+              const requiredMarker = getRequiredMarker(item);
+              return (
+                <div key={item.dimension} className="jobs-skill-row">
+                  <div>
+                    <strong>{item.label}</strong>
+                    <span className={`jobs-skill-status is-${item.status}`}>{statusLabels[item.status]}</span>
+                  </div>
+                  <div className="jobs-skill-track">
+                    <span style={{ width: `${item.score}%` }} />
+                    <i style={{ left: `${requiredMarker}%` }} />
+                  </div>
+                  <p>{item.explanation}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="jobs-detail-footnote">
+            此分析使用已完成咨询画像、简历证据和岗位线索进行映射；证据不足的维度会在差距中显式标记。
+          </p>
+        </aside>
+      </section>
+
+      <section className="jobs-jd-section jobs-detail-jd-section">
+        {data.jdGapMap.map((item) => (
+          <article key={item.label}>
+            <strong>{item.label}</strong>
+            <p>当前证据：{item.current}</p>
+            <p>岗位期待：{item.target}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="jobs-modal-actions jobs-detail-actions">
+        <div className="jobs-advice-panel">
+          <strong>简历优化建议</strong>
+          {data.resume_advice.map((item) => (
+            <span key={item}>{item}</span>
+          ))}
+        </div>
+        <div className="jobs-advice-panel">
+          <strong>面试建议</strong>
+          {data.interview_advice.map((item) => (
+            <span key={item}>{item}</span>
+          ))}
+        </div>
+        <Link href="/jobs" className="jobs-outline-action">
+          <ArrowLeft size={18} />
+          返回职位推荐
+        </Link>
+        <Link href={`/resume-lab?jobId=${encodeURIComponent(data.jobId)}`} className="jobs-outline-action">
+          <ClipboardList size={18} />
+          针对此职位优化简历 Optimize Resume
+        </Link>
+        <Link href={`/interview/${encodeURIComponent(data.jobId)}`} className="jobs-primary-action">
+          <MessageCircle size={18} />
+          开始此职位的模拟面试 Start Mock Interview
+        </Link>
+      </section>
+    </div>
+  );
+}
 
 export function FitAnalysisBoard({ jobId }: { jobId: string }) {
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
@@ -49,9 +350,9 @@ export function FitAnalysisBoard({ jobId }: { jobId: string }) {
       try {
         const response = await fetch("/api/fit-analysis", {
           method: "POST",
-          headers: {
+          headers: await buildAuthenticatedHeaders({
             "Content-Type": "application/json"
-          },
+          }),
           body: JSON.stringify({ jobId, consultationState })
         });
 
@@ -75,191 +376,42 @@ export function FitAnalysisBoard({ jobId }: { jobId: string }) {
 
   if (loadState.status === "loading") {
     return (
-      <main className="page-stack">
-        <SectionBlock
-          eyebrow="岗位分析"
-          title="正在生成岗位匹配分析"
-          description="马上会看到你的优势、短板和 JD 差距。"
-        />
-      </main>
+      <JobsStatusPanel
+        eyebrow="职位分析"
+        title="正在生成岗位匹配分析"
+        description="系统正在读取已完成的求职咨询画像，并与当前岗位线索完成匹配分析。"
+      />
     );
   }
 
   if (loadState.status === "empty") {
     return (
-      <main className="page-stack">
-        <SectionBlock
-          eyebrow="岗位分析"
-          title="先完成咨询，再进入岗位分析"
-          description="完成首页咨询后，这里会基于你的信息生成岗位匹配分析。"
-        >
-          <div className="pill-row">
-            <Link href="/" className="primary-button">
-              回到首页完成咨询
-            </Link>
-          </div>
-        </SectionBlock>
-      </main>
+      <JobsStatusPanel
+        eyebrow="职位分析"
+        title="先完成咨询，再进入岗位分析"
+        description="完成首页的一问一答求职意向咨询后，这里会基于你的偏好、简历证据和岗位线索生成完整分析。"
+        action={
+          <Link href="/" className="jobs-primary-action">
+            回到首页完成咨询
+          </Link>
+        }
+      />
     );
   }
 
   if (loadState.status === "error") {
     return (
-      <main className="page-stack">
-        <SectionBlock eyebrow="Fit Analysis" title="岗位匹配分析暂时没有成功生成" description={loadState.message} />
-      </main>
+      <JobsStatusPanel
+        eyebrow="Fit Analysis"
+        title="岗位匹配分析暂时没有成功生成"
+        description={loadState.message}
+      />
     );
   }
 
-  const { data } = loadState;
-
   return (
-    <main className="page-stack">
-      <Reveal>
-        <div className="detail-panel">
-          <div className="detail-topline">
-            <p className="section-eyebrow">{data.company}</p>
-            <ConfidenceBadge label={data.sourceType} score={data.overallScore} />
-          </div>
-          <h2 className="detail-title">{data.roleTitle}</h2>
-          <p className="detail-copy">先看这个岗位为什么适合你、还差什么，再决定下一步怎么准备。</p>
-        </div>
-      </Reveal>
-
-      <section className="detail-grid">
-        <div className="detail-panel-stack">
-          <Reveal>
-            <div className="detail-panel">
-              <p className="section-eyebrow">推荐原因</p>
-              <div className="fit-reason-list">
-                {data.whyRecommended.map((item) => (
-                  <article key={`${item.source}-${item.title}`} className="fit-reason-item">
-                    <div className="fit-reason-topline">
-                      <strong>{item.title}</strong>
-                      <span className={`fit-source fit-source-${item.source}`}>
-                        {item.source === "resume" ? "能力证据 / 简历" : "职业意图 / 对话"}
-                      </span>
-                    </div>
-                    <p>{item.detail}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </Reveal>
-
-          <Reveal delay={0.04}>
-            <div className="detail-panel">
-              <p className="section-eyebrow">能力匹配</p>
-              <div className="ability-grid">
-                {data.abilityMatch.map((item) => (
-                  <article key={item.dimension} className="ability-card">
-                    <div className="ability-card-topline">
-                      <strong>{item.label}</strong>
-                      <span className={`ability-status ability-status-${item.status}`}>
-                        {statusLabels[item.status]}
-                      </span>
-                    </div>
-                    <p>{item.explanation}</p>
-                    <div className="evidence-list">
-                      {item.evidence.length > 0 ? (
-                        item.evidence.map((evidence) => <span key={evidence}>简历证据：{evidence}</span>)
-                      ) : (
-                        <span>简历证据较弱，当前还缺少更直接的支撑。</span>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </Reveal>
-
-          <Reveal delay={0.08}>
-            <div className="detail-panel">
-              <p className="section-eyebrow">差距分析</p>
-              <ul className="fit-list">
-                {data.gaps.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-              <div className="jd-map">
-                {data.jdGapMap.map((item) => (
-                  <article key={item.label} className="jd-row">
-                    <strong>{item.label}</strong>
-                    <p>当前证据：{item.current}</p>
-                    <p>岗位期待：{item.target}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </Reveal>
-        </div>
-
-        <div className="detail-panel-stack">
-          <Reveal>
-            <div className="detail-panel">
-              <p className="section-eyebrow">岗位概览</p>
-              <div className="metric-row metric-row-single">
-                <MetricCard label="城市" value={data.city} detail={data.sourceType} />
-              </div>
-            </div>
-          </Reveal>
-
-          <Reveal delay={0.04}>
-            <div className="detail-panel">
-              <p className="section-eyebrow">你的偏好</p>
-              <div className="intent-summary">
-                <p>
-                  <strong>目标城市：</strong>
-                  {data.intentSummary.targetCities.length > 0 ? data.intentSummary.targetCities.join(" / ") : "暂未明确"}
-                </p>
-                <p>
-                  <strong>偏好方向：</strong>
-                  {data.intentSummary.preferredDirections.length > 0
-                    ? data.intentSummary.preferredDirections.map((item) => directionLabels[item] ?? item).join(" / ")
-                    : "暂未明确"}
-                </p>
-                <p>
-                  <strong>偏好公司：</strong>
-                  {data.intentSummary.preferredCompanies.length > 0
-                    ? data.intentSummary.preferredCompanies.join(" / ")
-                    : "暂无特别明确的公司偏好"}
-                </p>
-                <p>
-                  <strong>工作偏好：</strong>
-                  {data.intentSummary.workStylePreferences.length > 0
-                    ? data.intentSummary.workStylePreferences.map((item) => workStyleLabels[item] ?? item).join(" / ")
-                    : "暂未明确"}
-                </p>
-              </div>
-              <ul className="fit-list fit-list-compact">
-                {data.intentSummary.reasons.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          </Reveal>
-
-          <Reveal delay={0.08}>
-            <div className="detail-panel">
-              <p className="section-eyebrow">下一步建议</p>
-              <ul className="fit-list">
-                {data.nextSteps.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-              <div className="pill-row">
-                <Link href={`/interview/${data.jobId}`} className="primary-button">
-                  进入模拟面试
-                </Link>
-                <Link href="/jobs" className="ghost-button">
-                  返回岗位推荐
-                </Link>
-              </div>
-              <p className="detail-caption">{data.interviewCta}</p>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-    </main>
+    <JobsChrome>
+      <AnalysisContent data={loadState.data} />
+    </JobsChrome>
   );
 }

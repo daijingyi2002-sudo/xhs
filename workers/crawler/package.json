@@ -10,9 +10,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "seed:jobs": "tsx src/seed-jobs.ts",
+    "capture:xhs-login": "tsx src/seed-jobs.ts --capture-login-state"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.104.0",
     "@xhs/domain": "file:../../packages/domain",
     "playwright": "^1.59.1",
     "zod": "^4.1.12"

@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { companies, type JobLead } from "@xhs/domain";
 import type { InterviewAnswerRecord, InterviewSession } from "@xhs/ai";
-import { useMemo, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { completeInterviewForResumeOptimization, completeInterviewToPlaza } from "../lib/interview-completion";
 import { useInterviewSession } from "../lib/use-interview-session";
+import { AccountMenu } from "./account-menu";
+import { BrandMark } from "./brand-mark";
 
 const navItems = [
   { href: "/", icon: "home", label: "首页 Home" },
@@ -50,8 +54,8 @@ function buildCompetencyBars(session: InterviewSession): CompetencyBar[] {
 function buildFocusLabel(session: InterviewSession) {
   if (session.summary) {
     return {
-      title: "面试总结 Interview Summary",
-      description: "本轮面试已完成，下面展示维度总结与下一步建议。"
+      title: "面试复盘 Offer Readiness",
+      description: "本轮面试已完成，重点放大优势、补强不足，并把反馈沉淀到简历优化。"
     };
   }
 
@@ -70,20 +74,62 @@ function getCompanyName(companyId: string) {
 }
 
 export function MockInterviewDashboard({ lead }: { lead: JobLead }) {
+  const router = useRouter();
   const { loadState, busy, errorMessage, submit } = useInterviewSession(lead.id);
   const [draft, setDraft] = useState("");
+  const [pendingAnswer, setPendingAnswer] = useState("");
+  const [selectedGapIndex, setSelectedGapIndex] = useState<number | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const session = loadState.status === "ready" ? loadState.session : null;
   const focus = useMemo(() => (session ? buildFocusLabel(session) : null), [session]);
   const competencyBars = useMemo(() => (session ? buildCompetencyBars(session) : []), [session]);
+  const selectedGap =
+    session?.summary && selectedGapIndex !== null ? session.summary.gaps[selectedGapIndex] ?? null : null;
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+  }, [busy, pendingAnswer, session?.answers.length, session?.currentTurn?.id, session?.summary]);
 
   async function handleSubmit() {
-    if (!draft.trim()) return;
-    const result = await submit(draft.trim());
+    const answer = draft.trim();
+    if (!answer || busy) return;
+
+    setPendingAnswer(answer);
+    setDraft("");
+
+    const result = await submit(answer);
 
     if (result) {
-      setDraft("");
+      setPendingAnswer("");
+      return;
     }
+
+    setDraft(answer);
+    setPendingAnswer("");
+  }
+
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+
+    event.preventDefault();
+    void handleSubmit();
+  }
+
+  function handleResumeOptimization() {
+    if (session) {
+      completeInterviewForResumeOptimization(session, window.localStorage);
+    }
+
+    router.push("/resume-lab");
+  }
+
+  function handleEndInterview() {
+    if (session) {
+      completeInterviewToPlaza(session, window.localStorage);
+    }
+
+    router.push("/plaza");
   }
 
   if (loadState.status === "loading") {
@@ -115,23 +161,16 @@ export function MockInterviewDashboard({ lead }: { lead: JobLead }) {
   const companyName = getCompanyName(lead.companyId);
 
   return (
-    <div className="interview-shell">
+    <>
+      <div className="interview-shell">
       <aside className="interview-sidebar">
         <div className="interview-sidebar-header">
-          <div className="interview-avatar">CC</div>
+          <BrandMark size="lg" />
+          <AccountMenu variant="interview" />
           <div>
-            <h1>Career Catalyst</h1>
-            <p>Expert Mentor AI</p>
+            <h1>职业催化剂 Career Catalyst</h1>
+            <p>AI 专家导师 Expert Mentor AI</p>
           </div>
-          <button
-            type="button"
-            className="interview-submit-side"
-            onClick={handleSubmit}
-            disabled={busy || !!session.summary || !draft.trim()}
-          >
-            <span className="material-symbols-outlined">send</span>
-            提交 Submit
-          </button>
         </div>
 
         <nav className="interview-nav">
@@ -176,9 +215,9 @@ export function MockInterviewDashboard({ lead }: { lead: JobLead }) {
               </div>
             </div>
 
-            <Link href="/jobs" className="interview-end-button">
+            <button type="button" className="interview-end-button" onClick={handleEndInterview}>
               结束面试 End Interview
-            </Link>
+            </button>
           </div>
         </header>
 
@@ -226,19 +265,93 @@ export function MockInterviewDashboard({ lead }: { lead: JobLead }) {
 
               {session.summary ? (
                 <section className="interview-summary-card">
-                  <h3>面试总结 Interview Summary</h3>
-                  <p>{session.summary.overallTakeaway}</p>
-                  <div className="interview-summary-grid">
-                    {session.summary.scoreByDimension.map((item) => (
-                      <article key={item.dimension} className="interview-summary-metric">
-                        <strong>{item.dimension}</strong>
-                        <span>{item.score}/10</span>
-                        <p>{item.note}</p>
-                      </article>
-                    ))}
+                  <div className="interview-summary-heading">
+                    <span className="interview-summary-kicker">Offer Readiness</span>
+                    <h3>面试复盘与下一步行动</h3>
+                    <p>{session.summary.overallTakeaway}</p>
                   </div>
+
+                  <div className="interview-summary-block">
+                    <h4>优点，继续放大</h4>
+                    <div className="interview-summary-list">
+                      {session.summary.strengths.map((item) => (
+                        <article key={item.title} className="interview-summary-item is-strength">
+                          <strong>{item.title}</strong>
+                          <p>{item.evidence}</p>
+                          <small>{item.amplification}</small>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="interview-summary-block">
+                    <h4>不足，转成提高项</h4>
+                    <div className="interview-summary-list">
+                      {session.summary.gaps.map((item, index) => (
+                        <article key={item.title} className="interview-summary-item is-gap">
+                          <strong>{item.title}</strong>
+                          <p>{item.evidence}</p>
+                          <small>{item.improvement}</small>
+                          <button
+                            type="button"
+                            className="interview-gap-detail-button"
+                            onClick={() => setSelectedGapIndex(index)}
+                          >
+                            查看提升指引
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="interview-star-replay">
+                    <div>
+                      <span className="interview-summary-kicker">Interviewer Lens</span>
+                      <h4>{session.summary.starReplay.interviewerPersona}</h4>
+                      <p>{session.summary.starReplay.personaDefinition}</p>
+                    </div>
+                    <p>{session.summary.starReplay.perfectReplay}</p>
+                    <div className="interview-tag-row">
+                      {session.summary.starReplay.highlights.map((item) => (
+                        <span key={item}>{item}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button type="button" className="interview-resume-cta" onClick={handleResumeOptimization}>
+                    <span className="material-symbols-outlined">description</span>
+                    <span>
+                      <strong>{session.summary.resumeOptimizationCta.label}</strong>
+                      <small>{session.summary.resumeOptimizationCta.reason}</small>
+                    </span>
+                  </button>
                 </section>
               ) : null}
+
+              {pendingAnswer ? (
+                <div className="interview-message-pair">
+                  <article className="interview-message interview-message-user">
+                    <div className="interview-user-avatar">You</div>
+                    <div className="interview-bubble interview-bubble-user">
+                      <p>{pendingAnswer}</p>
+                    </div>
+                  </article>
+
+                  <article className="interview-message interview-message-ai interview-message-thinking">
+                    <div className="interview-bot-avatar">
+                      <span className="material-symbols-outlined">psychology</span>
+                    </div>
+                    <div className="interview-bubble interview-bubble-ai">
+                      <p>正在分析你的回答，并生成下一轮追问...</p>
+                      <div className="interview-tag-row">
+                        <span>真实生成中</span>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              ) : null}
+
+              <div ref={messagesEndRef} />
             </div>
 
             <div className="interview-input-area">
@@ -249,6 +362,7 @@ export function MockInterviewDashboard({ lead }: { lead: JobLead }) {
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={handleDraftKeyDown}
                   placeholder="构思你的回答...（考虑核心 KPI 与过程指标）"
                   rows={3}
                   disabled={busy || !!session.summary}
@@ -294,6 +408,15 @@ export function MockInterviewDashboard({ lead }: { lead: JobLead }) {
               <section>
                 <h4>上一轮反馈 LATEST FEEDBACK</h4>
                 <div className="interview-feedback-stack">
+                  {busy ? (
+                    <article className="interview-feedback-card">
+                      <div>
+                        <span className="interview-feedback-dot is-muted" />
+                        <strong>正在分析当前回答</strong>
+                      </div>
+                      <p>系统正在基于候选人背景、岗位线索和历史回答生成真实反馈与下一问。</p>
+                    </article>
+                  ) : null}
                   {feedbackItems.length > 0 ? (
                     feedbackItems.map((item, index) => (
                       <article key={`${item.turnId}-feedback`} className="interview-feedback-card">
@@ -341,6 +464,45 @@ export function MockInterviewDashboard({ lead }: { lead: JobLead }) {
           </aside>
         </div>
       </main>
-    </div>
+      </div>
+      {selectedGap ? (
+        <div className="interview-modal-backdrop" role="presentation" onClick={() => setSelectedGapIndex(null)}>
+          <section
+            className="interview-gap-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="interview-gap-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button type="button" className="interview-modal-close" onClick={() => setSelectedGapIndex(null)}>
+              <span className="material-symbols-outlined">close</span>
+            </button>
+            <span className="interview-summary-kicker">Improvement Guide</span>
+            <h3 id="interview-gap-modal-title">{selectedGap.title}</h3>
+            <p>{selectedGap.detail.whyItMatters}</p>
+            <div className="interview-gap-modal-section">
+              <strong>当前证据</strong>
+              <p>{selectedGap.evidence}</p>
+            </div>
+            <div className="interview-gap-modal-section">
+              <strong>提高方向</strong>
+              <p>{selectedGap.improvement}</p>
+            </div>
+            <div className="interview-gap-modal-section">
+              <strong>练习步骤</strong>
+              <ol>
+                {selectedGap.detail.practiceSteps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </div>
+            <div className="interview-gap-modal-section">
+              <strong>表达升级示例</strong>
+              <p>{selectedGap.detail.exampleUpgrade}</p>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }

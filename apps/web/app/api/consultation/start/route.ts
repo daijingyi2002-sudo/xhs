@@ -1,4 +1,6 @@
 import { extractResumeText, startConsultation, createQuestionStream } from "@xhs/ai";
+import { requireAuthenticatedRequest } from "../../../../lib/auth-server";
+import { upsertActivityRecord } from "../../../../lib/user-activity-server";
 
 export const runtime = "nodejs";
 
@@ -28,6 +30,9 @@ function createEventStream(
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuthenticatedRequest(request);
+  if (auth instanceof Response) return auth;
+
   const requestStartedAt = Date.now();
   console.info("[consultation-perf] request start", JSON.stringify({ route: "start" }));
   const formData = await request.formData();
@@ -86,6 +91,24 @@ export async function POST(request: Request) {
         currentQuestion: question.trim()
       }
     });
+    const persisted = await upsertActivityRecord({
+      userId: auth.userId,
+      accessToken: auth.accessToken,
+      recordType: "consultation",
+      recordKey: "latest",
+      payload: {
+        state: {
+          ...initialState,
+          source,
+          currentQuestion: question.trim()
+        },
+        resumeName: resume instanceof File ? resume.name : null,
+        source
+      }
+    });
+    if (!persisted.ok) {
+      console.warn("[activity-persistence] consultation start not saved", persisted.error);
+    }
     console.info(
       "[consultation-perf] route done",
       JSON.stringify({

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import type { ConsultationState } from "@xhs/ai";
 import { saveConsultationState } from "../lib/consultation-session";
+import { buildAuthenticatedHeaders } from "../lib/api-auth-fetch";
 
 type Message = {
   id: string;
@@ -15,6 +16,7 @@ type StreamEvent = Record<string, unknown>;
 
 const focusLabels: Record<string, string> = {
   city_preference: "城市",
+  role_preference: "岗位方向",
   company_preference: "公司",
   project_depth: "项目",
   ai_understanding: "AI / LLM",
@@ -131,6 +133,7 @@ export function ConsultationStudio() {
       const assistantId = "assistant-round-1";
       const response = await fetch("/api/consultation/start", {
         method: "POST",
+        headers: await buildAuthenticatedHeaders(),
         body: formData
       });
 
@@ -177,9 +180,9 @@ export function ConsultationStudio() {
     try {
       const response = await fetch("/api/consultation/answer", {
         method: "POST",
-        headers: {
+        headers: await buildAuthenticatedHeaders({
           "Content-Type": "application/json"
-        },
+        }),
         body: JSON.stringify({
           state: session,
           answer

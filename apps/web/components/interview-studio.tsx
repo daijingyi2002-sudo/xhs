@@ -101,11 +101,18 @@ export function InterviewStudio({ lead }: { lead: JobLead }) {
             <h4>{summary?.overallTakeaway}</h4>
           </div>
           <div className="summary-grid">
-            {summary?.scoreByDimension.map((dimension) => (
-              <article key={dimension.dimension} className="metric-card">
-                <span className="metric-label">{dimension.dimension}</span>
-                <strong className="metric-value">{dimension.score}/10</strong>
-                <p className="metric-detail">{dimension.note}</p>
+            {summary?.strengths.map((item) => (
+              <article key={item.title} className="metric-card">
+                <span className="metric-label">优点</span>
+                <strong className="metric-value">{item.title}</strong>
+                <p className="metric-detail">{item.amplification}</p>
+              </article>
+            ))}
+            {summary?.gaps.map((item) => (
+              <article key={item.title} className="metric-card">
+                <span className="metric-label">不足</span>
+                <strong className="metric-value">{item.title}</strong>
+                <p className="metric-detail">{item.improvement}</p>
               </article>
             ))}
           </div>

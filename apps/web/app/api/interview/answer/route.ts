@@ -1,9 +1,14 @@
 import { submitInterviewAnswer } from "@xhs/ai";
 import type { InterviewSession } from "@xhs/ai";
+import { requireAuthenticatedRequest } from "../../../../lib/auth-server";
+import { upsertActivityRecord } from "../../../../lib/user-activity-server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const auth = await requireAuthenticatedRequest(request);
+  if (auth instanceof Response) return auth;
+
   const body = (await request.json().catch(() => null)) as
     | {
         session?: InterviewSession;
@@ -20,7 +25,21 @@ export async function POST(request: Request) {
   }
 
   try {
-    return Response.json(submitInterviewAnswer(body.session, body.answer.trim()));
+    const result = await submitInterviewAnswer(body.session, body.answer.trim());
+    const persisted = await upsertActivityRecord({
+      userId: auth.userId,
+      accessToken: auth.accessToken,
+      recordType: "interview_session",
+      recordKey: result.session.jobId,
+      payload: {
+        jobId: result.session.jobId,
+        session: result.session
+      }
+    });
+    if (!persisted.ok) {
+      console.warn("[activity-persistence] interview answer not saved", persisted.error);
+    }
+    return Response.json(result);
   } catch (error) {
     return Response.json(
       {

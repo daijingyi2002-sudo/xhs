@@ -19,7 +19,9 @@
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "crawl:xhs-jobs": "npm run seed:jobs --workspace @xhs/crawler --",
+    "crawl:xhs-login": "npm run capture:xhs-login --workspace @xhs/crawler --"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

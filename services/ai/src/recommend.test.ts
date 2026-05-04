@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ConsultationState } from "./consultation";
 import { buildRecommendationProfileFromConsultation, createDemoRecommendationProfile } from "./profile";
-import { createUnavailableRetrievalAdapter, getFitAnalysisForJob, getTopRecommendations } from "./recommend";
+import {
+  createUnavailableRetrievalAdapter,
+  getFitAnalysisForJob,
+  getTopRecommendations,
+  type RecommendationExplanationClient
+} from "./recommend";
 
 describe("recommendation engine", () => {
   it("returns top 5 recommendations for a candidate profile", async () => {
@@ -28,7 +33,54 @@ describe("recommendation engine", () => {
       expect(card.matchReasons.every((item) => item.length <= 60)).toBe(true);
       expect(card.riskReminder.length).toBeGreaterThan(0);
       expect(card.analysisPreview.score).toBe(card.matchScore);
+      expect(card.recommendation_reason.length).toBeGreaterThan(0);
+      expect(card.matched_strengths.length).toBeGreaterThan(0);
+      expect(card.potential_gaps.length).toBeGreaterThan(0);
+      expect(card.next_step_advice.length).toBeGreaterThan(0);
     }
+  });
+
+  it("adds LLM card explanations without changing recommendation order", async () => {
+    const profile = createDemoRecommendationProfile();
+    const baseline = await getTopRecommendations(profile, {
+      retrievalAdapter: createUnavailableRetrievalAdapter()
+    });
+    const explanationClient: RecommendationExplanationClient = {
+      async explainRecommendations(input) {
+        return input.recommendations.map((item) => ({
+          jobId: item.jobId,
+          recommendation_reason: `LLM reason for ${item.company}`,
+          matched_strengths: [`LLM strength for ${item.roleTitle}`],
+          potential_gaps: ["LLM gap from known score"],
+          next_step_advice: "LLM next step based on profile and score"
+        }));
+      }
+    };
+
+    const enriched = await getTopRecommendations(profile, {
+      retrievalAdapter: createUnavailableRetrievalAdapter(),
+      explanationClient
+    });
+
+    expect(enriched.recommendations.map((item) => item.jobId)).toEqual(
+      baseline.recommendations.map((item) => item.jobId)
+    );
+    expect(enriched.recommendations[0]?.recommendation_reason).toMatch(/^LLM reason/);
+  });
+
+  it("falls back to rule card explanations when LLM output is invalid", async () => {
+    const response = await getTopRecommendations(createDemoRecommendationProfile(), {
+      retrievalAdapter: createUnavailableRetrievalAdapter(),
+      explanationClient: {
+        async explainRecommendations() {
+          return [{ jobId: "bad", recommendation_reason: "", matched_strengths: [], potential_gaps: [], next_step_advice: "" }];
+        }
+      }
+    });
+
+    expect(response.recommendations).toHaveLength(5);
+    expect(response.recommendations.every((item) => item.recommendation_reason.length > 0)).toBe(true);
+    expect(response.recommendations.every((item) => item.matched_strengths.length > 0)).toBe(true);
   });
 
   it("falls back to rule scoring when retrieval adapter is unavailable", async () => {
@@ -190,6 +242,48 @@ describe("recommendation engine", () => {
     expect(analysis?.jdGapMap.length).toBeGreaterThan(0);
     expect(analysis?.scoreBreakdown.totalScore).toBeGreaterThan(0);
     expect(analysis?.interviewCta.length).toBeGreaterThan(0);
+    expect(analysis?.overall_summary.length).toBeGreaterThan(0);
+    expect(analysis?.strength_analysis.length).toBeGreaterThan(0);
+    expect(analysis?.gap_analysis.length).toBeGreaterThan(0);
+    expect(analysis?.resume_advice.length).toBeGreaterThan(0);
+    expect(analysis?.interview_advice.length).toBeGreaterThan(0);
+  });
+
+  it("adds LLM fit analysis explanations with fallback when the model fails", async () => {
+    const profile = createDemoRecommendationProfile();
+    const recommendations = await getTopRecommendations(profile, {
+      retrievalAdapter: createUnavailableRetrievalAdapter()
+    });
+    const targetJobId = recommendations.recommendations[0]!.jobId;
+
+    const enriched = await getFitAnalysisForJob(profile, targetJobId, {
+      retrievalAdapter: createUnavailableRetrievalAdapter(),
+      explanationClient: {
+        async explainFitAnalysis(input) {
+          return {
+            jobId: input.analysis.jobId,
+            overall_summary: "LLM overall summary",
+            strength_analysis: ["LLM strength analysis"],
+            gap_analysis: ["LLM gap analysis"],
+            resume_advice: ["LLM resume advice"],
+            interview_advice: ["LLM interview advice"]
+          };
+        }
+      }
+    });
+    const fallback = await getFitAnalysisForJob(profile, targetJobId, {
+      retrievalAdapter: createUnavailableRetrievalAdapter(),
+      explanationClient: {
+        async explainFitAnalysis() {
+          throw new Error("model unavailable");
+        }
+      }
+    });
+
+    expect(enriched?.overall_summary).toBe("LLM overall summary");
+    expect(enriched?.strength_analysis).toEqual(["LLM strength analysis"]);
+    expect(fallback?.overall_summary.length).toBeGreaterThan(0);
+    expect(fallback?.strength_analysis.length).toBeGreaterThan(0);
   });
 
   it("keeps ability evidence on resume and intent evidence on QA inside fit analysis", async () => {

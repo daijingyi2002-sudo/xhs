@@ -160,15 +160,53 @@ export const interviewTurns: InterviewTurn[] = [
 ];
 
 export const interviewSummary: InterviewSummary = {
-  scoreByDimension: [
-    { dimension: "产品结构化思考", score: 8, note: "主线清晰，但指标表达还可以更锋利。" },
-    { dimension: "AI / LLM 理解", score: 8, note: "能讲系统链路，但 trade-off 细节还需补充。" },
-    { dimension: "用户洞察", score: 9, note: "对求职用户的真实痛点把握较强。" },
-    { dimension: "项目表达", score: 7, note: "表达流畅，但结果量化不够。" },
-    { dimension: "商业理解", score: 7, note: "已经有意识，但需要更具体的业务语言。" }
+  overallTakeaway: "你已经具备 AI 产品经理的面试雏形，下一步关键是把产品判断转成更硬的业务证据，并把优势沉淀进简历表达。",
+  strengths: [
+    {
+      title: "产品闭环意识清楚",
+      evidence: "回答能围绕用户痛点、功能价值、指标验证和后续优化展开。",
+      amplification: "把这个优势放到项目经历第一句，用“目标-动作-结果”结构呈现。"
+    },
+    {
+      title: "AI 产品叙事有基础",
+      evidence: "能把检索、生成、岗位推荐和模拟面试串成一个连续求职链路。",
+      amplification: "继续强调你如何定义模型能力边界，而不是只说用了大模型。"
+    }
   ],
-  overallTakeaway: "你已经具备 AI 产品经理的雏形，下一步关键是把产品判断转成更硬的业务证据。",
-  nextActions: ["把 2 个项目 bullet 改成结果导向", "准备 AI 产品取舍题答案库", "补一套增长与实验指标叙事"]
+  gaps: [
+    {
+      title: "业务证据密度不足",
+      evidence: "表达中有指标意识，但缺少基线、对照、结果变化和具体样本。",
+      improvement: "补 2 个带真实指标或可解释代理指标的项目案例。",
+      detail: {
+        whyItMatters: "AI 产品经理面试会追问你如何证明功能值得做，证据密度会直接影响可信度。",
+        practiceSteps: ["为每个项目写出一个北极星指标", "补充上线前后的变化或预期验证方式", "准备一个取舍失败的复盘案例"],
+        exampleUpgrade: "把“提升求职效率”升级为“把岗位筛选、面试训练、简历改写串成闭环，并用推荐采纳率和反馈可执行率验证”。"
+      }
+    },
+    {
+      title: "模型边界表达还不够锋利",
+      evidence: "能讲 Agent 应用，但对模型误判、人工兜底、评估集设计讲得不够具体。",
+      improvement: "准备一套 AI 产品失败场景、兜底机制和验收指标的回答。",
+      detail: {
+        whyItMatters: "面试官会用边界问题判断你是会做 demo，还是能把 AI 能力产品化。",
+        practiceSteps: ["列出 3 个模型可能误导用户的场景", "为每个场景补一条产品兜底", "说明如何通过日志和评估样本持续改进"],
+        exampleUpgrade: "从“让 Agent 推荐岗位”升级为“当证据不足时降低置信度、解释来源，并引导用户补充目标城市和经历”。"
+      }
+    }
+  ],
+  starReplay: {
+    interviewerPersona: "AI 产品负责人 / Hiring Manager",
+    personaDefinition: "一线业务面试官，关注候选人能否把 AI 能力转成可验证、可落地、可复盘的产品结果。",
+    perfectReplay:
+      "明星候选人会先界定目标用户和高频痛点，再说明为什么 AI Agent 是合适解法，随后拆出数据来源、模型边界、推荐指标、面试训练闭环和风险兜底。最后会用一次复盘说明自己如何根据用户反馈调整策略，并把结果沉淀到简历优化和下一轮求职行动。",
+    highlights: ["先讲用户和岗位场景", "再讲模型能力与产品边界", "最后讲指标、风险和复盘动作"]
+  },
+  resumeOptimizationCta: {
+    label: "去简历优化，放大优势并补齐短板",
+    href: "/resume-lab",
+    reason: "把本次面试暴露出的优势和不足同步成更有证据的项目 bullet。"
+  }
 };
 
 export const resumeSuggestions: ResumeSuggestion[] = [
@@ -252,4 +290,3 @@ export const adminSnapshot: AdminSnapshot = {
     }
   ]
 };
-

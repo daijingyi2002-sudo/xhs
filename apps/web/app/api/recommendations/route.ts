@@ -4,10 +4,15 @@ import {
   getTopRecommendations
 } from "@xhs/ai";
 import type { ConsultationState } from "@xhs/ai";
+import { requireAuthenticatedRequest } from "../../../lib/auth-server";
+import { upsertActivityRecord } from "../../../lib/user-activity-server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const auth = await requireAuthenticatedRequest(request);
+  if (auth instanceof Response) return auth;
+
   const body = (await request.json().catch(() => null)) as
     | {
         consultationState?: ConsultationState;
@@ -28,6 +33,19 @@ export async function POST(request: Request) {
     ? buildRecommendationProfileFromConsultation(body.consultationState)
     : createDemoRecommendationProfile();
   const response = await getTopRecommendations(profile);
+  const persisted = await upsertActivityRecord({
+    userId: auth.userId,
+    accessToken: auth.accessToken,
+    recordType: "recommendations",
+    recordKey: "latest",
+    payload: {
+      response,
+      profileTrace: profile.trace
+    }
+  });
+  if (!persisted.ok) {
+    console.warn("[activity-persistence] recommendations not saved", persisted.error);
+  }
 
   return Response.json(response);
 }

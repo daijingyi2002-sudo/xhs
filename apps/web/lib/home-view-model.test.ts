@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConsultationState } from "@xhs/ai";
-import { buildHomeViewModel } from "./home-view-model";
+import { buildConsultationDialogTurns, buildHomeViewModel } from "./home-view-model";
 
 function createState(overrides?: Partial<ConsultationState>): ConsultationState {
   return {
@@ -41,16 +41,16 @@ describe("buildHomeViewModel", () => {
 
     expect(viewModel.stage).toBe("idle");
     expect(viewModel.primaryActionLabel).toBe("开始第 1 轮追问");
-    expect(viewModel.profileCards[0]?.value).toContain("等待上传简历");
+    expect(viewModel.progressLabel).toBe("第 0 / 3 轮");
   });
 
   it("returns in-progress state for an active three-round consultation", () => {
     const viewModel = buildHomeViewModel(createState());
 
     expect(viewModel.stage).toBe("consulting");
+    expect(viewModel.recommendationCta).toBeNull();
     expect(viewModel.primaryActionLabel).toBe("提交第 2 轮回答");
     expect(viewModel.progressLabel).toBe("第 2 / 3 轮");
-    expect(viewModel.profileCards.some((card) => card.label === "当前焦点")).toBe(true);
   });
 
   it("returns completed state with recommendation CTA when consultation is done", () => {
@@ -63,8 +63,54 @@ describe("buildHomeViewModel", () => {
     );
 
     expect(viewModel.stage).toBe("completed");
+    expect(viewModel.recommendationCta).toEqual({
+      href: "/jobs",
+      label: "查看推荐职位 Recommended Jobs"
+    });
     expect(viewModel.primaryActionLabel).toBe("查看推荐岗位");
     expect(viewModel.statusText).toContain("三轮");
-    expect(viewModel.profileCards.some((card) => card.label === "咨询结论")).toBe(true);
+  });
+});
+
+describe("buildConsultationDialogTurns", () => {
+  it("keeps prior questions and answers as one-on-one chat turns", () => {
+    const turns = buildConsultationDialogTurns([
+      { id: "assistant-round-1", role: "assistant", content: "你更希望在哪个城市工作？" },
+      { id: "user-round-1", role: "user", content: "上海或杭州都可以，优先上海。" },
+      { id: "assistant-round-2", role: "assistant", content: "你更想投什么类型的岗位？" }
+    ]);
+
+    expect(turns).toEqual([
+      {
+        id: "assistant-round-1",
+        kind: "exchange",
+        label: "第 1 轮",
+        question: "你更希望在哪个城市工作？",
+        answer: "上海或杭州都可以，优先上海。"
+      },
+      {
+        id: "assistant-round-2",
+        kind: "exchange",
+        label: "第 2 轮",
+        question: "你更想投什么类型的岗位？",
+        answer: null
+      }
+    ]);
+  });
+
+  it("keeps the consultation summary as its own assistant note", () => {
+    const turns = buildConsultationDialogTurns([
+      { id: "assistant-round-1", role: "assistant", content: "你想去哪个城市？" },
+      { id: "user-round-1", role: "user", content: "深圳。" },
+      { id: "consultation-summary", role: "assistant", content: "三轮咨询完成，可以进入推荐。" }
+    ]);
+
+    expect(turns[1]).toEqual({
+      id: "consultation-summary",
+      kind: "summary",
+      label: "咨询总结",
+      question: "三轮咨询完成，可以进入推荐。",
+      answer: null
+    });
   });
 });

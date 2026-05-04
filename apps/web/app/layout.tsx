@@ -17,7 +17,14 @@ const body = IBM_Plex_Sans({
 
 export const metadata: Metadata = {
   title: "求职 Agent / 面试知识库平台",
-  description: "Agent-first job search console for AI product manager candidates."
+  description: "Agent-first job search console for AI product manager candidates.",
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png" },
+      { url: "/brand-mark.png", type: "image/png" }
+    ],
+    apple: [{ url: "/apple-icon.png", type: "image/png" }]
+  }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

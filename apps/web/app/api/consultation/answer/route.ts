@@ -1,5 +1,7 @@
 import type { ConsultationState } from "@xhs/ai";
 import { advanceConsultation, createQuestionStream } from "@xhs/ai";
+import { requireAuthenticatedRequest } from "../../../../lib/auth-server";
+import { upsertActivityRecord } from "../../../../lib/user-activity-server";
 
 export const runtime = "nodejs";
 
@@ -29,6 +31,9 @@ function createEventStream(
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuthenticatedRequest(request);
+  if (auth instanceof Response) return auth;
+
   const body = (await request.json()) as {
     state?: ConsultationState;
     answer?: string;
@@ -54,6 +59,18 @@ export async function POST(request: Request) {
     });
 
     if (nextState.done) {
+      const persisted = await upsertActivityRecord({
+        userId: auth.userId,
+        accessToken: auth.accessToken,
+        recordType: "consultation",
+        recordKey: "latest",
+        payload: {
+          state: nextState
+        }
+      });
+      if (!persisted.ok) {
+        console.warn("[activity-persistence] consultation complete not saved", persisted.error);
+      }
       send({
         type: "complete",
         state: nextState
@@ -84,6 +101,23 @@ export async function POST(request: Request) {
         currentQuestion: question.trim()
       }
     });
+    const persisted = await upsertActivityRecord({
+      userId: auth.userId,
+      accessToken: auth.accessToken,
+      recordType: "consultation",
+      recordKey: "latest",
+      payload: {
+        state: {
+          ...nextState,
+          source,
+          currentQuestion: question.trim()
+        },
+        source
+      }
+    });
+    if (!persisted.ok) {
+      console.warn("[activity-persistence] consultation answer not saved", persisted.error);
+    }
   });
 
   return new Response(stream, {

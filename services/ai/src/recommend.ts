@@ -1,13 +1,23 @@
-import { fitAnalyses, jobLeads, phase1RecommendationJobSeeds } from "@xhs/domain";
+import OpenAI from "openai";
+import { getServerEnv } from "@xhs/config";
+import {
+  fitAnalyses,
+  fitAnalysisExplanationSchema,
+  jobLeads,
+  phase1RecommendationJobSeeds,
+  recommendationCardExplanationSchema
+} from "@xhs/domain";
 import type {
   FitAnalysis,
   FitAnalysisAbilityItem,
+  FitAnalysisExplanation,
   FitAnalysisIntentSummary,
   FitAnalysisReason,
   FitAnalysisResponse,
   JobLead,
   RecommendationAnalysisPreview,
   RecommendationCandidateProfileInput,
+  RecommendationCardExplanation,
   RecommendationDimension,
   RecommendationEvidencePoint,
   RecommendationIntentDirection,
@@ -17,6 +27,7 @@ import type {
   RecommendationWorkStyle,
   TopRecommendationResponse
 } from "@xhs/domain";
+import { z } from "zod";
 
 type RetrievalMatch = {
   jobId: string;
@@ -28,11 +39,42 @@ type DimensionEvidenceSelection = {
   points: RecommendationEvidencePoint[];
 };
 
+type RecommendationCardExplanationWithJobId = RecommendationCardExplanation & {
+  jobId: string;
+};
+
+type FitAnalysisExplanationWithJobId = FitAnalysisExplanation & {
+  jobId: string;
+};
+
 export type RecommendationRetrievalAdapter = {
   name: string;
   available: boolean;
   rank: (query: RecommendationCandidateProfileInput, jobs: RecommendationJobSeed[]) => Promise<RetrievalMatch[]>;
 };
+
+export type RecommendationExplanationClient = {
+  explainRecommendations?: (input: {
+    profile: RecommendationCandidateProfileInput;
+    recommendations: RecommendationResultCard[];
+    jobs: RecommendationJobSeed[];
+  }) => Promise<RecommendationCardExplanationWithJobId[]>;
+  explainFitAnalysis?: (input: {
+    profile: RecommendationCandidateProfileInput;
+    job: RecommendationJobSeed;
+    analysis: FitAnalysisResponse;
+  }) => Promise<FitAnalysisExplanationWithJobId>;
+};
+
+const recommendationExplanationListSchema = z.array(
+  recommendationCardExplanationSchema.extend({
+    jobId: z.string()
+  })
+);
+
+const fitAnalysisExplanationWithJobIdSchema = fitAnalysisExplanationSchema.extend({
+  jobId: z.string()
+});
 
 const dimensionLabels: Record<RecommendationDimension, string> = {
   ai_llm_understanding: "AI / LLM 理解",
@@ -98,6 +140,33 @@ const noisePatterns = [
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function extractJsonBlock(raw: string) {
+  const normalized = raw.trim();
+  const fenced = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+
+  if (fenced?.[1]) {
+    return fenced[1].trim();
+  }
+
+  const firstBrace = normalized.indexOf("{");
+  const firstBracket = normalized.indexOf("[");
+  const startsArray = firstBracket >= 0 && (firstBrace < 0 || firstBracket < firstBrace);
+
+  if (startsArray) {
+    const lastBracket = normalized.lastIndexOf("]");
+    if (lastBracket > firstBracket) {
+      return normalized.slice(firstBracket, lastBracket + 1);
+    }
+  }
+
+  const lastBrace = normalized.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return normalized.slice(firstBrace, lastBrace + 1);
+  }
+
+  return normalized;
 }
 
 function unique(items: string[]) {
@@ -372,6 +441,12 @@ function selectRelevantEvidenceForDimension(
 function truncateReason(text: string) {
   const normalized = normalizeWhitespace(text);
   return normalized.length <= 60 ? normalized : `${normalized.slice(0, 58)}…`;
+}
+
+function clampExplanationList(items: string[], fallback: string[], maxItems = 3) {
+  const cleaned = unique(items).filter((item) => item.length <= 180);
+  const base = cleaned.length > 0 ? cleaned : fallback;
+  return base.slice(0, maxItems);
 }
 
 function buildDimensionReason(
@@ -691,6 +766,231 @@ function buildNextSteps(
   return steps.slice(0, 3);
 }
 
+function buildFallbackCardExplanation(
+  profile: RecommendationCandidateProfileInput,
+  job: RecommendationJobSeed,
+  card: RecommendationResultCard
+): RecommendationCardExplanation {
+  const strengths = clampExplanationList(card.analysisPreview.strengths, card.matchReasons, 3);
+  const gaps = clampExplanationList(card.analysisPreview.gaps, [card.riskReminder], 3);
+  const intentTail =
+    profile.intentProfile.targetCities.includes(job.city) || profile.intentProfile.preferredCompanies.includes(job.companyName)
+      ? "同时与当前求职偏好有一定重合。"
+      : "建议先通过详情页继续验证岗位适配度。";
+
+  return {
+    recommendation_reason: `${job.companyName} 的 ${job.jobTitle} 当前匹配分为 ${card.matchScore}，主要由能力证据、求职偏好和岗位线索置信度共同支撑，${intentTail}`,
+    matched_strengths: strengths,
+    potential_gaps: gaps,
+    next_step_advice: card.analysisPreview.interviewCta
+  };
+}
+
+function buildFallbackFitExplanation(
+  profile: RecommendationCandidateProfileInput,
+  job: RecommendationJobSeed,
+  analysis: FitAnalysisResponse
+): FitAnalysisExplanation {
+  return {
+    overall_summary: `${job.companyName} / ${job.jobTitle} 当前匹配分为 ${analysis.overallScore}。这个结论来自已完成咨询画像、简历证据、岗位要求和规则评分，不包含未验证经历。`,
+    strength_analysis: clampExplanationList(
+      analysis.whyRecommended.map((item) => item.detail),
+      analysis.strengths,
+      4
+    ),
+    gap_analysis: clampExplanationList(analysis.gaps, [analysis.scoreBreakdown.dimensions[0]?.dimension ?? "仍需补强岗位证据"], 4),
+    resume_advice: clampExplanationList(
+      analysis.nextSteps.filter((item) => item.includes("简历") || item.includes("绠€鍘")),
+      [`围绕 ${job.requirements[0] ?? job.jobTitle} 补充一段可验证的项目证据，避免只写求职意向。`],
+      4
+    ),
+    interview_advice: clampExplanationList(
+      [analysis.interviewCta, ...analysis.nextSteps],
+      [`优先准备 ${dimensionLabels[[...analysis.scoreBreakdown.dimensions].sort((left, right) => left.candidateScore - right.candidateScore)[0].dimension]} 相关追问。`],
+      4
+    )
+  };
+}
+
+function getOpenAIRecommendationClient(): RecommendationExplanationClient | null {
+  const env = getServerEnv();
+
+  if (!env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  const client = new OpenAI({
+    apiKey: env.OPENAI_API_KEY,
+    baseURL: env.OPENAI_BASE_URL,
+    timeout: Number(process.env.OPENAI_RECOMMENDATION_TIMEOUT_MS ?? 20000)
+  });
+  const model = env.OPENAI_MODEL ?? "gpt-5.4";
+
+  return {
+    async explainRecommendations(input) {
+      const response = await client.responses.create({
+        model,
+        input: [
+          {
+            role: "system",
+            content:
+              "你是求职推荐解释层。只能基于给定 profile、job 和评分结果生成解释。禁止虚构经历、学校、公司、项目、数据。禁止改变排序、删除岗位或新增岗位。只返回 JSON 数组。"
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              schema:
+                "Array<{ jobId:string; recommendation_reason:string; matched_strengths:string[]; potential_gaps:string[]; next_step_advice:string }>",
+              profile: {
+                summary: input.profile.summary,
+                strengths: input.profile.strengths,
+                gaps: input.profile.gaps,
+                intent: input.profile.intentProfile,
+                ability: input.profile.abilityProfile.dimensions
+              },
+              recommendations: input.recommendations.map((item) => ({
+                jobId: item.jobId,
+                company: item.company,
+                roleTitle: item.roleTitle,
+                city: item.city,
+                matchScore: item.matchScore,
+                matchReasons: item.matchReasons,
+                riskReminder: item.riskReminder,
+                scoreBreakdown: item.scoreBreakdown,
+                analysisPreview: item.analysisPreview,
+                job: input.jobs.find((job) => job.id === item.jobId)
+              }))
+            })
+          }
+        ]
+      });
+
+      return recommendationExplanationListSchema.parse(JSON.parse(extractJsonBlock(response.output_text ?? "")));
+    },
+    async explainFitAnalysis(input) {
+      const response = await client.responses.create({
+        model,
+        input: [
+          {
+            role: "system",
+            content:
+              "你是岗位匹配分析解释层。只能基于给定 profile、job、analysis 和评分结果生成建议。禁止虚构经历或数据。只返回一个 JSON 对象。"
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              schema:
+                "{ jobId:string; overall_summary:string; strength_analysis:string[]; gap_analysis:string[]; resume_advice:string[]; interview_advice:string[] }",
+              profile: {
+                summary: input.profile.summary,
+                strengths: input.profile.strengths,
+                gaps: input.profile.gaps,
+                intent: input.profile.intentProfile,
+                ability: input.profile.abilityProfile.dimensions
+              },
+              job: input.job,
+              analysis: input.analysis
+            })
+          }
+        ]
+      });
+
+      return fitAnalysisExplanationWithJobIdSchema.parse(JSON.parse(extractJsonBlock(response.output_text ?? "")));
+    }
+  };
+}
+
+async function enrichRecommendationCardsWithExplanations(
+  profile: RecommendationCandidateProfileInput,
+  recommendations: RecommendationResultCard[],
+  options?: {
+    explanationClient?: RecommendationExplanationClient | null;
+  }
+) {
+  const fallbackMap = new Map(
+    recommendations.map((card) => {
+      const job = phase1RecommendationJobSeeds.find((item) => item.id === card.jobId)!;
+      return [card.jobId, buildFallbackCardExplanation(profile, job, card)];
+    })
+  );
+  const explanationClient =
+    options?.explanationClient === undefined ? getOpenAIRecommendationClient() : options.explanationClient;
+
+  if (!explanationClient?.explainRecommendations) {
+    return recommendations.map((card) => ({ ...card, ...fallbackMap.get(card.jobId)! }));
+  }
+
+  try {
+    const modelExplanations = recommendationExplanationListSchema.parse(
+      await explanationClient.explainRecommendations({
+        profile,
+        recommendations,
+        jobs: phase1RecommendationJobSeeds
+      })
+    );
+    const modelMap = new Map(modelExplanations.map((item) => [item.jobId, item]));
+
+    return recommendations.map((card) => {
+      const modelExplanation = modelMap.get(card.jobId);
+      const fallback = fallbackMap.get(card.jobId)!;
+      const parsed = recommendationCardExplanationSchema.safeParse(modelExplanation);
+      return {
+        ...card,
+        ...(parsed.success
+          ? {
+              recommendation_reason: parsed.data.recommendation_reason,
+              matched_strengths: clampExplanationList(parsed.data.matched_strengths, fallback.matched_strengths, 3),
+              potential_gaps: clampExplanationList(parsed.data.potential_gaps, fallback.potential_gaps, 3),
+              next_step_advice: parsed.data.next_step_advice
+            }
+          : fallback)
+      };
+    });
+  } catch {
+    // Fallback: keep API stable when LLM is unavailable, times out, or returns invalid JSON.
+    return recommendations.map((card) => ({ ...card, ...fallbackMap.get(card.jobId)! }));
+  }
+}
+
+async function enrichFitAnalysisWithExplanation(
+  profile: RecommendationCandidateProfileInput,
+  job: RecommendationJobSeed,
+  analysis: FitAnalysisResponse,
+  options?: {
+    explanationClient?: RecommendationExplanationClient | null;
+  }
+): Promise<FitAnalysisResponse> {
+  const fallback = buildFallbackFitExplanation(profile, job, analysis);
+  const explanationClient =
+    options?.explanationClient === undefined ? getOpenAIRecommendationClient() : options.explanationClient;
+
+  if (!explanationClient?.explainFitAnalysis) {
+    return { ...analysis, ...fallback };
+  }
+
+  try {
+    const modelExplanation = fitAnalysisExplanationWithJobIdSchema.parse(
+      await explanationClient.explainFitAnalysis({ profile, job, analysis })
+    );
+
+    if (modelExplanation.jobId !== analysis.jobId) {
+      return { ...analysis, ...fallback };
+    }
+
+    return {
+      ...analysis,
+      overall_summary: modelExplanation.overall_summary,
+      strength_analysis: clampExplanationList(modelExplanation.strength_analysis, fallback.strength_analysis, 4),
+      gap_analysis: clampExplanationList(modelExplanation.gap_analysis, fallback.gap_analysis, 4),
+      resume_advice: clampExplanationList(modelExplanation.resume_advice, fallback.resume_advice, 4),
+      interview_advice: clampExplanationList(modelExplanation.interview_advice, fallback.interview_advice, 4)
+    };
+  } catch {
+    // Fallback: analysis fields are deterministic rule text when LLM generation fails validation.
+    return { ...analysis, ...fallback };
+  }
+}
+
 async function buildRecommendationCards(
   profile: RecommendationCandidateProfileInput,
   options?: {
@@ -721,7 +1021,11 @@ async function buildRecommendationCards(
         riskReminder: buildRiskReminder(profile, scoreBreakdown),
         summary: job.summary,
         scoreBreakdown,
-        analysisPreview: buildAnalysisPreview(profile, job, scoreBreakdown, matchReasons)
+        analysisPreview: buildAnalysisPreview(profile, job, scoreBreakdown, matchReasons),
+        recommendation_reason: "",
+        matched_strengths: [""],
+        potential_gaps: [""],
+        next_step_advice: ""
       };
     })
     .filter((item) => item.scoreBreakdown.intentMatchWeight >= 0.8)
@@ -735,14 +1039,16 @@ export async function getTopRecommendations(
   profile: RecommendationCandidateProfileInput,
   options?: {
     retrievalAdapter?: RecommendationRetrievalAdapter;
+    explanationClient?: RecommendationExplanationClient | null;
   }
 ): Promise<TopRecommendationResponse> {
   const recommendations = await buildRecommendationCards(profile, options);
+  const enrichedRecommendations = await enrichRecommendationCardsWithExplanations(profile, recommendations, options);
 
   return {
     profileId: profile.id,
     generatedAt: new Date().toISOString(),
-    recommendations
+    recommendations: enrichedRecommendations
   };
 }
 
@@ -751,6 +1057,7 @@ export async function getFitAnalysisForJob(
   jobId: string,
   options?: {
     retrievalAdapter?: RecommendationRetrievalAdapter;
+    explanationClient?: RecommendationExplanationClient | null;
   }
 ): Promise<FitAnalysisResponse | null> {
   const recommendations = await buildRecommendationCards(profile, options);
@@ -765,7 +1072,7 @@ export async function getFitAnalysisForJob(
     return null;
   }
 
-  return {
+  const analysis: FitAnalysisResponse = {
     jobId: match.jobId,
     company: match.company,
     roleTitle: match.roleTitle,
@@ -780,8 +1087,32 @@ export async function getFitAnalysisForJob(
     jdGapMap: match.analysisPreview.jdGapMap,
     nextSteps: buildNextSteps(profile, job, match.scoreBreakdown),
     interviewCta: match.analysisPreview.interviewCta,
-    scoreBreakdown: match.scoreBreakdown
+    scoreBreakdown: match.scoreBreakdown,
+    ...buildFallbackFitExplanation(profile, job, {
+      jobId: match.jobId,
+      company: match.company,
+      roleTitle: match.roleTitle,
+      city: match.city,
+      sourceType: match.sourceType,
+      overallScore: match.matchScore,
+      whyRecommended: buildWhyRecommended(profile, job, match.scoreBreakdown),
+      abilityMatch: buildAbilityMatch(profile, job, match.scoreBreakdown),
+      intentSummary: buildIntentSummary(profile, job),
+      strengths: match.analysisPreview.strengths,
+      gaps: buildDetailedGaps(job, match.scoreBreakdown),
+      jdGapMap: match.analysisPreview.jdGapMap,
+      nextSteps: buildNextSteps(profile, job, match.scoreBreakdown),
+      interviewCta: match.analysisPreview.interviewCta,
+      scoreBreakdown: match.scoreBreakdown,
+      overall_summary: "",
+      strength_analysis: [""],
+      gap_analysis: [""],
+      resume_advice: [""],
+      interview_advice: [""]
+    })
   };
+
+  return enrichFitAnalysisWithExplanation(profile, job, analysis, options);
 }
 
 function mapSeedToLegacyJobLead(job: RecommendationJobSeed): JobLead {

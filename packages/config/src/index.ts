@@ -1,5 +1,14 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+
+type BrowserSupabaseClient = SupabaseClient<any, "public">;
+
+let browserClientCache:
+  | {
+      cacheKey: string;
+      client: BrowserSupabaseClient;
+    }
+  | null = null;
 
 const publicEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
@@ -50,12 +59,24 @@ export function createSupabaseBrowserClient() {
     return null;
   }
 
-  return createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+  const cacheKey = `${env.NEXT_PUBLIC_SUPABASE_URL}:${env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`;
+  if (browserClientCache?.cacheKey === cacheKey) {
+    return browserClientCache.client;
+  }
+
+  const client = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true
     }
   });
+
+  browserClientCache = {
+    cacheKey,
+    client
+  };
+
+  return client;
 }
 
 export function createSupabaseServerClient() {

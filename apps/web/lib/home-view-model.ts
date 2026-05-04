@@ -1,8 +1,22 @@
 import type { ConsultationState } from "@xhs/ai";
 
-export type HomeProfileCard = {
+export type HomeRecommendationCta = {
+  href: string;
   label: string;
-  value: string;
+};
+
+export type HomeDialogMessage = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+};
+
+export type HomeDialogTurn = {
+  id: string;
+  kind: "exchange" | "summary";
+  label: string;
+  question: string;
+  answer: string | null;
 };
 
 export type HomeViewModel = {
@@ -10,23 +24,67 @@ export type HomeViewModel = {
   primaryActionLabel: string;
   progressLabel: string;
   statusText: string;
-  profileCards: HomeProfileCard[];
+  recommendationCta: HomeRecommendationCta | null;
 };
 
-const focusLabels: Record<string, string> = {
-  city_preference: "城市偏好",
-  company_preference: "公司偏好",
-  project_depth: "项目深挖",
-  ai_understanding: "AI / LLM 理解",
-  product_method: "产品方法",
-  data_analysis: "数据分析",
-  user_research: "用户研究",
-  role_concern: "求职顾虑"
-};
+export function buildConsultationDialogTurns(messages: HomeDialogMessage[]): HomeDialogTurn[] {
+  const turns: HomeDialogTurn[] = [];
+  let pendingExchange: HomeDialogTurn | null = null;
+  let exchangeCount = 0;
 
-function joinPreview(items: string[], fallback: string) {
-  const preview = items.filter(Boolean).slice(0, 2).join(" / ");
-  return preview || fallback;
+  for (const message of messages) {
+    const content = message.content.trim();
+    if (!content) continue;
+
+    if (message.role === "assistant") {
+      if (pendingExchange) {
+        turns.push(pendingExchange);
+        pendingExchange = null;
+      }
+
+      if (message.id === "consultation-summary") {
+        turns.push({
+          id: message.id,
+          kind: "summary",
+          label: "咨询总结",
+          question: content,
+          answer: null
+        });
+        continue;
+      }
+
+      exchangeCount += 1;
+      pendingExchange = {
+        id: message.id,
+        kind: "exchange",
+        label: `第 ${exchangeCount} 轮`,
+        question: content,
+        answer: null
+      };
+      continue;
+    }
+
+    if (pendingExchange) {
+      turns.push({ ...pendingExchange, answer: content });
+      pendingExchange = null;
+      continue;
+    }
+
+    exchangeCount += 1;
+    turns.push({
+      id: message.id,
+      kind: "exchange",
+      label: `第 ${exchangeCount} 轮`,
+      question: "",
+      answer: content
+    });
+  }
+
+  if (pendingExchange) {
+    turns.push(pendingExchange);
+  }
+
+  return turns;
 }
 
 export function buildHomeViewModel(session: ConsultationState | null): HomeViewModel {
@@ -36,11 +94,7 @@ export function buildHomeViewModel(session: ConsultationState | null): HomeViewM
       primaryActionLabel: "开始第 1 轮追问",
       progressLabel: "第 0 / 3 轮",
       statusText: "上传简历或输入背景后，系统会先启动第 1 轮咨询，再逐步补齐候选人画像。",
-      profileCards: [
-        { label: "候选人画像", value: "等待上传简历或输入职业目标" },
-        { label: "重点补充", value: "城市偏好 / 公司偏好 / 代表项目" },
-        { label: "咨询节奏", value: "3 轮澄清后进入岗位推荐" }
-      ]
+      recommendationCta: null
     };
   }
 
@@ -51,11 +105,10 @@ export function buildHomeViewModel(session: ConsultationState | null): HomeViewM
       progressLabel: `第 ${session.maxRounds} / ${session.maxRounds} 轮`,
       statusText:
         session.finalSummary ?? "三轮咨询已完成，画像已锁定，可以继续进入岗位推荐与匹配分析。",
-      profileCards: [
-        { label: "咨询结论", value: session.profileSummary },
-        { label: "已确认优势", value: joinPreview(session.strengths, "已完成三轮澄清") },
-        { label: "待继续验证", value: joinPreview(session.gaps, "进入岗位分析后继续验证") }
-      ]
+      recommendationCta: {
+        href: "/jobs",
+        label: "查看推荐职位 Recommended Jobs"
+      }
     };
   }
 
@@ -64,10 +117,6 @@ export function buildHomeViewModel(session: ConsultationState | null): HomeViewM
     primaryActionLabel: `提交第 ${session.round} 轮回答`,
     progressLabel: `第 ${session.round} / ${session.maxRounds} 轮`,
     statusText: session.currentQuestion || "正在生成本轮问题，请稍候。",
-    profileCards: [
-      { label: "候选人摘要", value: session.profileSummary },
-      { label: "当前焦点", value: focusLabels[session.currentFocus] ?? session.currentFocus },
-      { label: "已确认信号", value: joinPreview(session.strengths, "正在整理当前材料") }
-    ]
+    recommendationCta: null
   };
 }

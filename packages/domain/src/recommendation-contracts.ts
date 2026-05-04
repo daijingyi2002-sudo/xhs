@@ -137,6 +137,13 @@ export const recommendationAnalysisPreviewSchema = z.object({
   score: z.number().min(0).max(100)
 });
 
+export const recommendationCardExplanationSchema = z.object({
+  recommendation_reason: z.string().min(1),
+  matched_strengths: z.array(z.string().min(1)).min(1).max(3),
+  potential_gaps: z.array(z.string().min(1)).min(1).max(3),
+  next_step_advice: z.string().min(1)
+});
+
 export const fitAnalysisAbilityStatusSchema = z.enum(["strong", "medium", "weak"]);
 
 export const fitAnalysisReasonSchema = z.object({
@@ -165,6 +172,14 @@ export const fitAnalysisIntentSummarySchema = z.object({
   reasons: z.array(z.string()).max(3)
 });
 
+export const fitAnalysisExplanationSchema = z.object({
+  overall_summary: z.string().min(1),
+  strength_analysis: z.array(z.string().min(1)).min(1).max(4),
+  gap_analysis: z.array(z.string().min(1)).min(1).max(4),
+  resume_advice: z.array(z.string().min(1)).min(1).max(4),
+  interview_advice: z.array(z.string().min(1)).min(1).max(4)
+});
+
 export const fitAnalysisResponseSchema = z.object({
   jobId: z.string(),
   company: z.string(),
@@ -180,7 +195,8 @@ export const fitAnalysisResponseSchema = z.object({
   jdGapMap: recommendationAnalysisPreviewSchema.shape.jdGapMap,
   nextSteps: z.array(z.string()).min(2).max(3),
   interviewCta: z.string(),
-  scoreBreakdown: recommendationScoreBreakdownSchema
+  scoreBreakdown: recommendationScoreBreakdownSchema,
+  ...fitAnalysisExplanationSchema.shape
 });
 
 export const recommendationResultCardSchema = z.object({
@@ -195,7 +211,8 @@ export const recommendationResultCardSchema = z.object({
   riskReminder: z.string(),
   summary: z.string(),
   scoreBreakdown: recommendationScoreBreakdownSchema,
-  analysisPreview: recommendationAnalysisPreviewSchema
+  analysisPreview: recommendationAnalysisPreviewSchema,
+  ...recommendationCardExplanationSchema.shape
 });
 
 export const topRecommendationResponseSchema = z.object({
@@ -218,9 +235,11 @@ export type RecommendationJobSeed = z.infer<typeof recommendationJobSeedSchema>;
 export type RecommendationScoreDimension = z.infer<typeof recommendationScoreDimensionSchema>;
 export type RecommendationScoreBreakdown = z.infer<typeof recommendationScoreBreakdownSchema>;
 export type RecommendationAnalysisPreview = z.infer<typeof recommendationAnalysisPreviewSchema>;
+export type RecommendationCardExplanation = z.infer<typeof recommendationCardExplanationSchema>;
 export type FitAnalysisReason = z.infer<typeof fitAnalysisReasonSchema>;
 export type FitAnalysisAbilityItem = z.infer<typeof fitAnalysisAbilityItemSchema>;
 export type FitAnalysisIntentSummary = z.infer<typeof fitAnalysisIntentSummarySchema>;
+export type FitAnalysisExplanation = z.infer<typeof fitAnalysisExplanationSchema>;
 export type FitAnalysisResponse = z.infer<typeof fitAnalysisResponseSchema>;
 export type RecommendationResultCard = z.infer<typeof recommendationResultCardSchema>;
 export type TopRecommendationResponse = z.infer<typeof topRecommendationResponseSchema>;

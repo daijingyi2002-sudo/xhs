@@ -20,9 +20,12 @@ export function AppFrame({ children }: PropsWithChildren) {
 export function SiteHeader({ actions }: { actions?: ReactNode }) {
   return (
     <header className="site-header">
-      <div>
+      <div className="site-brand">
+        <img className="site-brand-mark" src="/brand-mark.png" alt="" />
+        <div>
         <p className="site-kicker">AI 求职助手</p>
         <h1 className="site-wordmark">求职 Agent</h1>
+        </div>
       </div>
       <div className="site-header-actions">{actions}</div>
     </header>

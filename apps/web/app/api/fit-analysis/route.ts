@@ -4,10 +4,15 @@ import {
   getFitAnalysisForJob
 } from "@xhs/ai";
 import type { ConsultationState } from "@xhs/ai";
+import { requireAuthenticatedRequest } from "../../../lib/auth-server";
+import { upsertActivityRecord } from "../../../lib/user-activity-server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const auth = await requireAuthenticatedRequest(request);
+  if (auth instanceof Response) return auth;
+
   const body = (await request.json().catch(() => null)) as
     | {
         jobId?: string;
@@ -46,6 +51,21 @@ export async function POST(request: Request) {
       },
       { status: 404 }
     );
+  }
+
+  const persisted = await upsertActivityRecord({
+    userId: auth.userId,
+    accessToken: auth.accessToken,
+    recordType: "fit_analysis",
+    recordKey: body.jobId,
+    payload: {
+      jobId: body.jobId,
+      response,
+      profileTrace: profile.trace
+    }
+  });
+  if (!persisted.ok) {
+    console.warn("[activity-persistence] fit analysis not saved", persisted.error);
   }
 
   return Response.json(response);

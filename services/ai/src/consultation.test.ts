@@ -2,6 +2,25 @@ import { describe, expect, it } from "vitest";
 import { advanceConsultation, materializeQuestion, startConsultation } from "./consultation";
 
 describe("consultation", () => {
+  it("starts by asking job-search preference questions instead of professional skill questions", async () => {
+    process.env.OPENAI_API_KEY = "";
+
+    const initial = await startConsultation({
+      resumeName: "candidate.txt",
+      resumeText: "我做过一个基于 RAG 的求职 Agent，也做过用户访谈和 SQL 分析。",
+      userNote: "我是一名寻求转型为产品经理的中层市场经理。我缺少哪些技能？"
+    });
+
+    const questionState = await materializeQuestion(initial);
+    const question = questionState.state.currentQuestion;
+
+    expect(["city_preference", "role_preference", "company_preference"]).toContain(
+      questionState.state.currentFocus
+    );
+    expect(question).toMatch(/城市|岗位|方向|公司|团队/);
+    expect(question).not.toMatch(/RAG|SQL|AI \/ LLM|模型|算法|技术|技能|项目|用户访谈/);
+  });
+
   it("keeps the three-round consultation loop dynamic without preset question ids", async () => {
     process.env.OPENAI_API_KEY = "";
 
@@ -13,7 +32,8 @@ describe("consultation", () => {
 
     const firstQuestionState = await materializeQuestion(initial);
     expect(firstQuestionState.state.currentQuestion.length).toBeGreaterThan(12);
-    expect(firstQuestionState.state.currentQuestion.includes("提示：")).toBe(true);
+    expect(firstQuestionState.state.currentQuestion).toMatch(/城市|岗位|方向|公司|团队/);
+    expect(firstQuestionState.state.currentQuestion.includes("提示：")).toBe(false);
     expect(firstQuestionState.state.round).toBe(1);
     expect(firstQuestionState.state.done).toBe(false);
 

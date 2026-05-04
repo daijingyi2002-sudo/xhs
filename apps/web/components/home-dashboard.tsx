@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import type { ConsultationState } from "@xhs/ai";
 import { saveConsultationState } from "../lib/consultation-session";
-import { buildHomeViewModel } from "../lib/home-view-model";
-
-type Message = {
-  id: string;
-  role: "assistant" | "user";
-  content: string;
-};
+import {
+  buildConsultationDialogTurns,
+  buildHomeViewModel,
+  type HomeDialogMessage
+} from "../lib/home-view-model";
+import { buildAuthenticatedHeaders } from "../lib/api-auth-fetch";
+import { AccountMenu } from "./account-menu";
+import { BrandMark } from "./brand-mark";
 
 type StreamEvent = Record<string, unknown>;
 
@@ -24,46 +25,11 @@ const navItems = [
   { href: "/history", icon: "history", label: "历史 History" }
 ];
 
-const processSteps = [
-  {
-    icon: "forum",
-    label: "步骤 1 Step 1",
-    title: "咨询 Consult",
-    copy:
-      "通过引导式对话识别您的核心优势和职业抱负。 Identify your core strengths and true career aspirations through guided conversation."
-  },
-  {
-    icon: "join_inner",
-    label: "步骤 2 Step 2",
-    title: "匹配 Match",
-    copy:
-      "根据市场需求和高潜力行业角色调整您的个人资料。 Align your profile with high-potential industry roles and market demands."
-  },
-  {
-    icon: "analytics",
-    label: "步骤 3 Step 3",
-    title: "分析 Analyze",
-    copy:
-      "深入分析您当前的简历和技能差距。 Perform a deep-dive gap analysis on your current resume and skill set."
-  },
-  {
-    icon: "record_voice_over",
-    label: "步骤 4 Step 4",
-    title: "面试 Interview",
-    copy:
-      "进行真实的、针对职位的 AI 行为和技术模拟。 Practice with realistic, role-specific AI behavioral and technical mocks."
-  },
-  {
-    icon: "trending_up",
-    label: "步骤 5 Step 5",
-    title: "优化 Optimize",
-    copy:
-      "完善您的策略，商谈薪资，并获得理想职位。 Refine your strategy, negotiate offers, and secure your ideal position.",
-    featured: true
-  }
-];
-
-function upsertAssistantMessage(messages: Message[], id: string, delta: string): Message[] {
+function upsertAssistantMessage(
+  messages: HomeDialogMessage[],
+  id: string,
+  delta: string
+): HomeDialogMessage[] {
   const existing = messages.find((message) => message.id === id);
 
   if (!existing) {
@@ -113,8 +79,8 @@ async function consumeJsonLines(response: Response, onEvent: (event: StreamEvent
 export function HomeDashboard() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const chatHistoryRef = useRef<HTMLDivElement | null>(null);
+  const [messages, setMessages] = useState<HomeDialogMessage[]>([]);
   const [composerValue, setComposerValue] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [session, setSession] = useState<ConsultationState | null>(null);
@@ -123,6 +89,7 @@ export function HomeDashboard() {
   const [busy, setBusy] = useState(false);
 
   const viewModel = useMemo(() => buildHomeViewModel(session), [session]);
+  const dialogTurns = useMemo(() => buildConsultationDialogTurns(messages), [messages]);
 
   async function startConsultation() {
     if (busy || (!resumeFile && !composerValue.trim())) return;
@@ -145,6 +112,7 @@ export function HomeDashboard() {
       const assistantId = "assistant-round-1";
       const response = await fetch("/api/consultation/start", {
         method: "POST",
+        headers: await buildAuthenticatedHeaders(),
         body: formData
       });
 
@@ -164,7 +132,7 @@ export function HomeDashboard() {
           setSession(nextState);
           setStatusMessage("第 1 轮问题已生成，请继续回答。");
           setComposerValue("");
-          transcriptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          chatHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
           return;
         }
 
@@ -184,7 +152,6 @@ export function HomeDashboard() {
 
     const answer = composerValue.trim();
     const nextAssistantId = `assistant-round-${Math.min(session.round + 1, session.maxRounds)}`;
-
     setBusy(true);
     setErrorMessage("");
     setMessages((current) => [...current, { id: `user-round-${session.round}`, role: "user", content: answer }]);
@@ -193,9 +160,9 @@ export function HomeDashboard() {
     try {
       const response = await fetch("/api/consultation/answer", {
         method: "POST",
-        headers: {
+        headers: await buildAuthenticatedHeaders({
           "Content-Type": "application/json"
-        },
+        }),
         body: JSON.stringify({
           state: session,
           answer
@@ -217,7 +184,7 @@ export function HomeDashboard() {
           const nextState = event.state as ConsultationState;
           setSession(nextState);
           setStatusMessage(`第 ${nextState.round} 轮问题已生成，请继续补充。`);
-          transcriptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          chatHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
           return;
         }
 
@@ -251,10 +218,16 @@ export function HomeDashboard() {
     }
   }
 
-  function handlePrimaryAction() {
+  function persistCompletedConsultation() {
     if (session?.done) {
       saveConsultationState(session);
-      router.push("/jobs");
+    }
+  }
+
+  function handlePrimaryAction() {
+    if (session?.done) {
+      persistCompletedConsultation();
+      router.push(viewModel.recommendationCta?.href ?? "/jobs");
       return;
     }
 
@@ -270,14 +243,15 @@ export function HomeDashboard() {
     <div className="career-shell">
       <header className="career-mobile-bar">
         <div className="career-mobile-brand">
-          <div className="career-avatar career-avatar-small">CC</div>
+          <BrandMark size="sm" />
+          <AccountMenu variant="compact" />
           <span>职业催化剂 Career Catalyst</span>
         </div>
       </header>
 
       <aside className="career-sidebar">
         <div className="career-sidebar-header">
-          <div className="career-avatar">CC</div>
+          <AccountMenu variant="career" />
           <h1>职业催化剂 Career Catalyst</h1>
           <p>AI 专家导师 Expert Mentor AI</p>
         </div>
@@ -316,7 +290,7 @@ export function HomeDashboard() {
         <div className="career-content">
           <section className="career-hero">
             <div className="career-hero-icon">
-              <span className="material-symbols-outlined">psychology</span>
+              <BrandMark size="xl" />
             </div>
             <h2>
               早上好，让我们一起规划您的职业道路。
@@ -329,59 +303,98 @@ export function HomeDashboard() {
             </p>
 
             <div className="career-chat-card">
-              {session ? (
-                <div className="career-current-question">
-                  <span className="career-badge">{viewModel.progressLabel}</span>
-                  <p>{session.currentQuestion || "正在生成本轮问题..."}</p>
-                </div>
-              ) : null}
+              <div className="career-dialog-history">
+                {dialogTurns.length > 0 ? (
+                  dialogTurns.map((turn) =>
+                    turn.kind === "summary" ? (
+                      <article key={turn.id} className="career-dialog-summary">
+                        <span>{turn.label}</span>
+                        <p>{turn.question}</p>
+                      </article>
+                    ) : (
+                      <article key={turn.id} className="career-dialog-turn">
+                        <span className="career-dialog-label">{turn.label}</span>
+                        <div className="career-dialog-row is-agent">
+                          <div className="career-dialog-avatar">AI</div>
+                          <div className="career-dialog-bubble">
+                            <span>Agent 问题</span>
+                            <p>{turn.question || "正在生成本轮问题..."}</p>
+                          </div>
+                        </div>
+                        <div className="career-dialog-row is-user">
+                          <div className={`career-dialog-bubble ${turn.answer ? "" : "is-pending"}`}>
+                            <span>你的回答</span>
+                            <p>{turn.answer ?? "等待回答"}</p>
+                          </div>
+                          <div className="career-dialog-avatar">你</div>
+                        </div>
+                      </article>
+                    )
+                  )
+                ) : (
+                  <div className="career-dialog-empty">
+                    <span className="career-badge">{viewModel.progressLabel}</span>
+                    <p>告诉我你的求职意向后，我会用 3 轮问题逐步确认城市、岗位和公司偏好。</p>
+                  </div>
+                )}
+                <div ref={chatHistoryRef} />
+              </div>
 
-              <textarea
-                value={composerValue}
-                onChange={(event) => setComposerValue(event.target.value)}
-                placeholder={
-                  session
-                    ? "输入本轮回答，越具体越好。"
-                    : "例如：我是一名寻求转型为产品经理的中层市场经理。我缺少哪些技能？"
-                }
-                className="career-composer"
-                disabled={busy}
-              />
+              <div className="career-composer-shell">
+                {session && dialogTurns.length === 0 ? (
+                  <div className="career-current-question">
+                    <span className="career-badge">{viewModel.progressLabel}</span>
+                    <p>{session.currentQuestion || "正在生成本轮问题..."}</p>
+                  </div>
+                ) : null}
 
-              <div className="career-chat-toolbar">
-                <div className="career-chat-meta">
+                <textarea
+                  value={composerValue}
+                  onChange={(event) => setComposerValue(event.target.value)}
+                  placeholder={
+                    session
+                      ? "输入本轮回答，越具体越好。"
+                      : "例如：我想找 AI 产品经理方向，优先上海/杭州，希望去互联网大厂或 AI 公司。"
+                  }
+                  className="career-composer"
+                  disabled={busy}
+                />
+
+                <div className="career-chat-toolbar">
+                  <div className="career-chat-meta">
+                    <button
+                      type="button"
+                      aria-label="Attach File"
+                      className="career-icon-button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={busy}
+                    >
+                      <span className="material-symbols-outlined">attach_file</span>
+                    </button>
+                    <span>AI 导师已就绪 AI COACH READY</span>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.txt,.md"
+                      className="career-hidden-input"
+                      onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
+                    />
+                  </div>
+
                   <button
                     type="button"
-                    aria-label="Attach File"
-                    className="career-icon-button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={busy}
+                    className="career-submit-button"
+                    onClick={handlePrimaryAction}
+                    disabled={
+                      busy ||
+                      (session ? !session.done && !composerValue.trim() : !resumeFile && !composerValue.trim())
+                    }
                   >
-                    <span className="material-symbols-outlined">attach_file</span>
+                    <span className="material-symbols-outlined">
+                      {session?.done ? "east" : "arrow_upward"}
+                    </span>
                   </button>
-                  <span>AI 导师已就绪 AI COACH READY</span>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.docx,.txt,.md"
-                    className="career-hidden-input"
-                    onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
-                  />
                 </div>
-
-                <button
-                  type="button"
-                  className="career-submit-button"
-                  onClick={handlePrimaryAction}
-                  disabled={
-                    busy ||
-                    (session ? !session.done && !composerValue.trim() : !resumeFile && !composerValue.trim())
-                  }
-                >
-                  <span className="material-symbols-outlined">
-                    {session?.done ? "east" : "arrow_upward"}
-                  </span>
-                </button>
               </div>
             </div>
 
@@ -404,102 +417,19 @@ export function HomeDashboard() {
             {resumeFile ? <p className="career-file-chip">已选择简历：{resumeFile.name}</p> : null}
             <p className="career-status-text">{busy ? "处理中，请稍候..." : statusMessage}</p>
             {errorMessage ? <p className="career-error-text">{errorMessage}</p> : null}
+            {viewModel.recommendationCta ? (
+              <Link
+                href={viewModel.recommendationCta.href}
+                className="career-recommendation-cta"
+                onClick={persistCompletedConsultation}
+              >
+                <span className="material-symbols-outlined">work</span>
+                <span>{viewModel.recommendationCta.label}</span>
+                <span className="material-symbols-outlined">arrow_forward</span>
+              </Link>
+            ) : null}
           </section>
 
-          <section className="career-profile-section">
-            <div className="career-section-heading">
-              <h3>咨询进度与候选人画像 Consultation Snapshot</h3>
-              <p>前端展示沿用你的首页风格，数据与会话状态走项目现有咨询后端。</p>
-            </div>
-
-            <div className="career-profile-grid">
-              {viewModel.profileCards.map((card) => (
-                <article key={card.label} className="career-profile-card">
-                  <span>{card.label}</span>
-                  <strong>{card.value}</strong>
-                </article>
-              ))}
-            </div>
-
-            <div className="career-transcript-grid">
-              <div className="career-transcript-card" ref={transcriptRef}>
-                <div className="career-transcript-head">
-                  <h4>三轮对话记录 Three-Round Consultation</h4>
-                  <span>{viewModel.progressLabel}</span>
-                </div>
-                <div className="career-transcript-list">
-                  {messages.length > 0 ? (
-                    messages.map((message) => (
-                      <article
-                        key={message.id}
-                        className={`career-message ${message.role === "assistant" ? "is-assistant" : "is-user"}`}
-                      >
-                        <span>{message.role === "assistant" ? "Agent" : "You"}</span>
-                        <p>{message.content}</p>
-                      </article>
-                    ))
-                  ) : (
-                    <p className="career-empty-copy">
-                      对话启动后，这里会实时显示三轮问题、你的回答与最终总结。
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="career-transcript-card">
-                <div className="career-transcript-head">
-                  <h4>当前状态 Live Status</h4>
-                  <span>{viewModel.stage}</span>
-                </div>
-                <p className="career-side-copy">{viewModel.statusText}</p>
-                {session ? (
-                  <ul className="career-side-list">
-                    <li>已确认：{session.strengths.slice(0, 2).join(" / ") || "等待更多信息"}</li>
-                    <li>待补充：{session.gaps.slice(0, 2).join(" / ") || "当前无明显缺口"}</li>
-                    <li>材料摘要：{session.profileSummary}</li>
-                  </ul>
-                ) : (
-                  <ul className="career-side-list">
-                    <li>支持上传 PDF / DOCX / TXT / MD 简历</li>
-                    <li>未上传简历也能直接开始 3 轮咨询</li>
-                    <li>完成后将自动进入 Top 5 岗位推荐</li>
-                  </ul>
-                )}
-
-                {session?.done ? (
-                  <Link href="/jobs" className="career-inline-link">
-                    进入推荐岗位总览
-                  </Link>
-                ) : null}
-              </div>
-            </div>
-          </section>
-
-          <section className="career-process-section">
-            <div className="career-section-heading">
-              <h3>导师计划流程 The Mentorship Process</h3>
-              <p>
-                实现职业目标的结构化方法 A structured approach to achieving your professional
-                objectives.
-              </p>
-            </div>
-
-            <div className="career-process-grid">
-              {processSteps.map((step) => (
-                <article
-                  key={step.title}
-                  className={`career-process-card ${step.featured ? "is-featured" : ""}`}
-                >
-                  <div className="career-process-icon">
-                    <span className="material-symbols-outlined">{step.icon}</span>
-                  </div>
-                  <span className="career-process-label">{step.label}</span>
-                  <h4>{step.title}</h4>
-                  <p>{step.copy}</p>
-                </article>
-              ))}
-            </div>
-          </section>
         </div>
       </main>
     </div>

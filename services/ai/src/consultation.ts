@@ -9,6 +9,7 @@ const MAX_ROUNDS = 3;
 
 const focusEnum = z.enum([
   "city_preference",
+  "role_preference",
   "company_preference",
   "project_depth",
   "ai_understanding",
@@ -90,6 +91,7 @@ type AnswerUpdate = z.infer<typeof answerUpdateSchema>;
 
 const focusDescriptions: Record<ConsultationFocus, string> = {
   city_preference: "城市偏好与地点限制",
+  role_preference: "目标岗位与方向偏好",
   company_preference: "公司偏好与业务方向",
   project_depth: "项目经历与结果证据",
   ai_understanding: "AI / LLM 相关理解",
@@ -101,6 +103,7 @@ const focusDescriptions: Record<ConsultationFocus, string> = {
 
 const focusKeywords: Record<ConsultationFocus, string[]> = {
   city_preference: ["beijing", "shanghai", "hangzhou", "shenzhen", "guangzhou", "chengdu", "city", "base", "location", "北京", "上海", "杭州", "深圳", "广州", "成都", "城市", "地点", "base"],
+  role_preference: ["role", "job", "position", "product manager", "pm", "career", "direction", "岗位", "职位", "产品经理", "AI 产品", "方向", "求职", "职业", "转型", "校招", "实习"],
   company_preference: ["bytedance", "tencent", "alibaba", "meituan", "baidu", "xiaohongshu", "ant", "company", "platform", "startup", "字节", "腾讯", "阿里", "美团", "百度", "小红书", "蚂蚁", "公司", "平台", "行业", "赛道"],
   project_depth: ["project", "launch", "requirement", "prd", "iteration", "owner", "metric", "result", "experiment", "项目", "上线", "需求", "负责", "迭代", "指标", "结果", "实验", "落地"],
   ai_understanding: ["ai", "llm", "agent", "rag", "prompt", "model", "reasoning", "retrieval", "vector", "人工智能", "大模型", "模型", "智能体", "提示词", "检索", "向量"],
@@ -111,15 +114,13 @@ const focusKeywords: Record<ConsultationFocus, string[]> = {
 };
 
 const neutralFallbackFocusOrder: ConsultationFocus[] = [
-  "project_depth",
-  "role_concern",
-  "company_preference",
   "city_preference",
-  "data_analysis",
-  "user_research",
-  "product_method",
-  "ai_understanding"
+  "role_preference",
+  "company_preference"
 ];
+
+const preferenceFocusOrder = ["city_preference", "role_preference", "company_preference"] as const;
+type PreferenceFocus = (typeof preferenceFocusOrder)[number];
 
 // pdf-parse recommends explicitly wiring the worker in Next.js/serverless environments.
 PDFParse.setWorker(getData());
@@ -208,19 +209,37 @@ function rankFocuses(text: string) {
     .sort((left, right) => right.score - left.score);
 }
 
+function isPreferenceFocus(focus: ConsultationFocus): focus is PreferenceFocus {
+  return (preferenceFocusOrder as readonly ConsultationFocus[]).includes(focus);
+}
+
+function getQuestionFocus(focus: ConsultationFocus): PreferenceFocus {
+  return isPreferenceFocus(focus) ? focus : "role_preference";
+}
+
 function pickPendingFocuses(text: string) {
-  const ranked = rankFocuses(text)
+  const ranked = rankFocuses(text).filter((entry) => isPreferenceFocus(entry.focus));
+  const missing = ranked.filter((entry) => entry.score === 0).map((entry) => entry.focus);
+  const alreadyMentioned = ranked
     .filter((entry) => entry.score > 0)
+    .sort((left, right) => left.score - right.score)
     .map((entry) => entry.focus);
 
-  return clampList([...ranked, ...neutralFallbackFocusOrder], MAX_ROUNDS) as ConsultationFocus[];
+  return clampList([...missing, ...alreadyMentioned, ...neutralFallbackFocusOrder], MAX_ROUNDS) as ConsultationFocus[];
 }
 
 function buildGapLabels(focuses: ConsultationFocus[]) {
   return clampList(
-    focuses.map((focus) => `仍需补充细节：${focusDescriptions[focus]}。后续对话可继续澄清。`),
+    focuses.map((focus) => `仍需补充求职偏好：${focusDescriptions[getQuestionFocus(focus)]}。后续对话可继续澄清。`),
     5
   );
+}
+
+function normalizePendingPreferenceFocuses(focuses: ConsultationFocus[], corpus: string) {
+  const preferenceFocuses = focuses.filter(isPreferenceFocus);
+  const fallback = pickPendingFocuses(corpus);
+
+  return clampList([...preferenceFocuses, ...fallback], MAX_ROUNDS) as ConsultationFocus[];
 }
 
 async function createStructuredResponse<T>(input: {
@@ -317,7 +336,7 @@ async function analyzeResumeWithOpenAI(input: StartConsultationInput): Promise<R
       "1. profileSummary must be a neutral summary of explicit material only.",
       "2. strengths means 'already evidenced in the material', not capability praise.",
       "3. gaps means 'still not explicitly shown in the material', not weakness judgment.",
-      "4. pendingFocuses should select at most 3 clarification directions from the allowed enum based on the actual material.",
+      "4. pendingFocuses must only include career preference focuses: city_preference, role_preference, company_preference.",
       "5. Never mention any target role unless it is explicitly written in the uploaded material."
     ].join("\n\n")
   });
@@ -367,50 +386,29 @@ async function analyzeAnswerWithOpenAI(input: AdvanceConsultationInput): Promise
       "Requirements:",
       "1. strengths means newly confirmed facts, not praise.",
       "2. gaps means still-unconfirmed information, not weaknesses.",
-      "3. Keep only the clarification directions that are still useful in the remaining rounds.",
+      "3. Keep only career preference clarification directions that are still useful in the remaining rounds: city_preference, role_preference, company_preference.",
       "4. Do not add any information that is not stated in the user's answer or the existing state."
     ].join("\n\n")
   });
 }
 
 function buildFallbackQuestion(state: ConsultationState) {
-  const focusLabel = focusDescriptions[state.currentFocus];
-  const evidence = firstNonEmpty(
-    [
-      state.turns.at(-1)?.answerSummary ?? "",
-      state.evidencePoints[0] ?? "",
-      state.backgroundHighlights[0] ?? "",
-      state.resumeExcerpt.slice(0, 80)
-    ],
-    "the strongest visible experience signal so far"
-  );
-  const gap = firstNonEmpty(
-    [
-      state.gaps.find((item) => item.includes(focusLabel)) ?? "",
-      state.gaps[0] ?? "",
-      `还需要补充与“${focusLabel}”相关的具体信息。`
-    ],
-    `还需要补充与“${focusLabel}”相关的具体信息。`
-  );
-  const priorAnswer = state.turns.at(-1)?.answerSummary ?? "";
-  const stageLead = priorAnswer
-    ? `上一轮你提到：“${priorAnswer}”。`
-    : `当前材料里能直接引用的信息是：“${evidence}”。`;
-  const focusPrompts: Record<ConsultationFocus, string> = {
-    city_preference: "请只追问城市偏好、是否能接受异地，以及这些限制背后的现实原因。",
-    company_preference: "请只追问更偏好的公司类型、业务方向或团队环境，以及形成这个偏好的原因。",
-    project_depth: "请只追问一个最能代表其经历的项目，重点问清目标、动作、结果和证据。",
-    ai_understanding: "请只追问材料里提到的 AI / LLM 相关内容具体是什么、做到了哪一步、边界在哪里。",
-    product_method: "请只追问一个实际判断案例，问清楚对方如何做优先级、取舍和决策。",
-    data_analysis: "请只追问一个数据分析案例，问清楚数据、方法、结论和后续动作。",
-    user_research: "请只追问一个用户研究或反馈案例，问清楚怎么收集、怎么判断、怎么影响后续动作。",
-    role_concern: "请只追问当前最担心的问题是什么，以及为什么会形成这个顾虑。"
+  const questionFocus = getQuestionFocus(state.currentFocus);
+  const questions: Record<PreferenceFocus, string> = {
+    city_preference:
+      "你更希望在哪个城市工作？是否接受异地、远程或通勤成本较高的机会？",
+    role_preference:
+      "下一份工作你更想投什么岗位或业务方向？希望日常工作更偏增长、工具、内容、商业化，还是 AI 应用落地？",
+    company_preference:
+      "你更偏好什么类型的公司和团队环境？例如大厂、成长型公司、AI 公司、平台型业务，或有哪些明确不想去的类型？"
   };
 
-  return `${stageLead} 目前待补充的是：${gap} 请用简体中文只提出一个具体追问，不要做评价，不要代入任何目标岗位。聚焦“${focusLabel}”。${focusPrompts[state.currentFocus]}`;
+  return questions[questionFocus];
 }
 
 function buildQuestionPrompt(state: ConsultationState) {
+  const questionFocus = getQuestionFocus(state.currentFocus);
+
   return [
     `Current round: ${state.round} / ${state.maxRounds}`,
     `Profile summary: ${state.profileSummary}`,
@@ -426,8 +424,8 @@ function buildQuestionPrompt(state: ConsultationState) {
           )
           .join(" || ")}`
       : "Conversation history: none",
-    `Must focus on: ${state.currentFocus} / ${focusDescriptions[state.currentFocus]}`,
-    "Reply in Simplified Chinese. Generate exactly one sharp, specific, evidence-seeking question. Do not ask for a generic self-introduction. Do not explain your reasoning. Do not mention any target role unless the user explicitly mentioned it."
+    `Must focus on: ${questionFocus} / ${focusDescriptions[questionFocus]}`,
+    "Reply in Simplified Chinese. Generate exactly one job-search preference question. Only ask about target city, target role/direction, company type, industry preference, team preference, or constraints. Do not ask professional knowledge questions, skill-gap questions, project-detail questions, technical questions, or interview-style questions. Do not explain your reasoning."
   ].join("\n\n");
 }
 
@@ -459,7 +457,7 @@ async function generateQuestionWithOpenAI(state: ConsultationState) {
         {
           role: "system",
           content:
-            "You are a neutral consultation agent. You only ask one question per round. The question must be generated from the current profile, history, and missing evidence. You may not invent a target role or capability that the material does not state. Reply in Simplified Chinese and output only the question itself."
+            "You are a job-search preference consultation agent. You only ask one question per round. Ask about the candidate's intended city, target role/direction, preferred company type, industry, team environment, or hard constraints. Never ask professional knowledge, skill gap, project detail, technical, or interview-style questions. Reply in Simplified Chinese and output only the question itself."
         },
         {
           role: "user",
@@ -514,7 +512,7 @@ async function streamQuestionWithOpenAI(state: ConsultationState): Promise<Strea
         {
           role: "system",
           content:
-            "You are a neutral consultation agent. You only ask one question per round. The question must be generated from the current profile, history, and missing evidence. You may not invent a target role or capability that the material does not state. Reply in Simplified Chinese and output only the question itself."
+            "You are a job-search preference consultation agent. You only ask one question per round. Ask about the candidate's intended city, target role/direction, preferred company type, industry, team environment, or hard constraints. Never ask professional knowledge, skill gap, project detail, technical, or interview-style questions. Reply in Simplified Chinese and output only the question itself."
         },
         {
           role: "user",
@@ -629,10 +627,9 @@ export async function extractResumeText(file: {
 
 export async function startConsultation(input: StartConsultationInput): Promise<ConsultationState> {
   const analysis = await analyzeResumeWithOpenAI(input);
-  const pendingFocuses = analysis.pendingFocuses.length
-    ? analysis.pendingFocuses
-    : pickPendingFocuses(`${input.resumeText}\n${input.userNote ?? ""}`);
-  const currentFocus = pendingFocuses[0] ?? "project_depth";
+  const corpus = `${input.resumeText}\n${input.userNote ?? ""}`;
+  const pendingFocuses = normalizePendingPreferenceFocuses(analysis.pendingFocuses, corpus);
+  const currentFocus = pendingFocuses[0] ?? "city_preference";
 
   return {
     version: 1,
@@ -676,10 +673,15 @@ export async function advanceConsultation(input: AdvanceConsultationInput): Prom
     }
   ];
   const done = input.state.round >= input.state.maxRounds;
-  const pendingFocuses = update.pendingFocuses.length
-    ? update.pendingFocuses
-    : input.state.pendingFocuses.filter((focus) => focus !== input.state.currentFocus);
-  const currentFocus = (update.nextFocus ?? pendingFocuses[0] ?? input.state.currentFocus) as ConsultationFocus;
+  const pendingFocuses = normalizePendingPreferenceFocuses(
+    update.pendingFocuses.length
+      ? update.pendingFocuses
+      : input.state.pendingFocuses.filter((focus) => focus !== input.state.currentFocus),
+    `${input.state.resumeExcerpt}\n${input.answer}`
+  ).filter((focus) => focus !== input.state.currentFocus);
+  const currentFocus = (isPreferenceFocus(update.nextFocus as ConsultationFocus)
+    ? update.nextFocus
+    : pendingFocuses[0] ?? "role_preference") as ConsultationFocus;
   const strengths = clampList(update.strengths.length ? update.strengths : input.state.strengths);
   const gaps = clampList(update.gaps.length ? update.gaps : input.state.gaps);
 

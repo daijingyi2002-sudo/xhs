@@ -89,15 +89,37 @@ export const interviewTurnSchema = z.object({
 });
 
 export const interviewSummarySchema = z.object({
-  scoreByDimension: z.array(
+  overallTakeaway: z.string(),
+  strengths: z.array(
     z.object({
-      dimension: z.string(),
-      score: z.number().min(0).max(10),
-      note: z.string()
+      title: z.string(),
+      evidence: z.string(),
+      amplification: z.string()
     })
   ),
-  overallTakeaway: z.string(),
-  nextActions: z.array(z.string())
+  gaps: z.array(
+    z.object({
+      title: z.string(),
+      evidence: z.string(),
+      improvement: z.string(),
+      detail: z.object({
+        whyItMatters: z.string(),
+        practiceSteps: z.array(z.string()),
+        exampleUpgrade: z.string()
+      })
+    })
+  ),
+  starReplay: z.object({
+    interviewerPersona: z.string(),
+    personaDefinition: z.string(),
+    perfectReplay: z.string(),
+    highlights: z.array(z.string())
+  }),
+  resumeOptimizationCta: z.object({
+    label: z.string(),
+    href: z.string(),
+    reason: z.string()
+  })
 });
 
 export const resumeSuggestionSchema = z.object({

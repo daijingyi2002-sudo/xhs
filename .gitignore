@@ -17,3 +17,5 @@ test-results/
 Thumbs.db
 Lotus/
 .gstack/
+workers/crawler/.cache/
+workers/crawler/output/

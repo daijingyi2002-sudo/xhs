@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { InterviewSession, InterviewSubmitResult } from "@xhs/ai";
+import { buildAuthenticatedHeaders } from "./api-auth-fetch";
+import { loadPersistedInterviewSession, savePersistedInterviewSession } from "./interview-session-persistence";
 
 type InterviewLoadState =
   | { status: "loading" }
@@ -21,11 +23,20 @@ export function useInterviewSession(jobId: string) {
       setErrorMessage("");
 
       try {
+        const persistedSession = loadPersistedInterviewSession(jobId, window.localStorage);
+
+        if (persistedSession) {
+          if (!cancelled) {
+            setLoadState({ status: "ready", session: persistedSession });
+          }
+          return;
+        }
+
         const response = await fetch("/api/interview/start", {
           method: "POST",
-          headers: {
+          headers: await buildAuthenticatedHeaders({
             "Content-Type": "application/json"
-          },
+          }),
           body: JSON.stringify({ jobId })
         });
 
@@ -37,6 +48,7 @@ export function useInterviewSession(jobId: string) {
         const session = (await response.json()) as InterviewSession;
 
         if (!cancelled) {
+          savePersistedInterviewSession(session, window.localStorage);
           setLoadState({ status: "ready", session });
         }
       } catch (error) {
@@ -65,9 +77,9 @@ export function useInterviewSession(jobId: string) {
     try {
       const response = await fetch("/api/interview/answer", {
         method: "POST",
-        headers: {
+        headers: await buildAuthenticatedHeaders({
           "Content-Type": "application/json"
-        },
+        }),
         body: JSON.stringify({
           session: loadState.session,
           answer
@@ -80,6 +92,7 @@ export function useInterviewSession(jobId: string) {
       }
 
       const result = (await response.json()) as InterviewSubmitResult;
+      savePersistedInterviewSession(result.session, window.localStorage);
       setLoadState({ status: "ready", session: result.session });
       return result;
     } catch (error) {
