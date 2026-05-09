@@ -152,13 +152,23 @@ function resolveGenerator(options?: InterviewEngineOptions): InterviewGenerator 
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL;
+  const model = resolveInterviewModel({
+    interviewModel: process.env.OPENAI_INTERVIEW_MODEL,
+    sharedModel: process.env.OPENAI_MODEL
+  });
 
-  if (!apiKey || !model) {
+  if (!apiKey) {
     throw new Error("Interview generation provider is not configured.");
   }
 
   return createOpenAIInterviewGenerator({ apiKey, model, baseURL: process.env.OPENAI_BASE_URL });
+}
+
+export function resolveInterviewModel(input: { interviewModel?: string; sharedModel?: string }) {
+  const configuredModel = [input.interviewModel, input.sharedModel]
+    .map((value) => value?.trim())
+    .find((value): value is string => Boolean(value));
+  return (configuredModel || "qwen-turbo-latest").split(/\s+/)[0];
 }
 
 function createFallbackSummary(overallTakeaway: string): InterviewSummary {

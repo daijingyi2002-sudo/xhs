@@ -3,6 +3,7 @@ import { getJobLead } from "./recommend";
 import {
   createInterviewSession,
   evaluateAnswer,
+  resolveInterviewModel,
   submitInterviewAnswer,
   type InterviewGenerationInput,
   type InterviewGenerationOutput
@@ -136,7 +137,36 @@ describe("interview session flow", () => {
   });
 
   it("fails explicitly when no generation boundary is available instead of using fixed fallback questions", async () => {
-    await expect(createInterviewSession(lead)).rejects.toThrow("Interview generation provider is not configured");
+    const previousApiKey = process.env.OPENAI_API_KEY;
+
+    try {
+      process.env.OPENAI_API_KEY = "";
+
+      await expect(createInterviewSession(lead)).rejects.toThrow("Interview generation provider is not configured");
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousApiKey;
+      }
+    }
+  });
+
+  it("uses a clean interview model name when the shared model env is duplicated", () => {
+    expect(
+      resolveInterviewModel({
+        sharedModel: "qwen-turbo-latest qwen-turbo-latest qwen-turbo-latest"
+      })
+    ).toBe("qwen-turbo-latest");
+  });
+
+  it("lets the interview-specific model override the shared model", () => {
+    expect(
+      resolveInterviewModel({
+        interviewModel: "qwen-plus-latest",
+        sharedModel: "qwen-turbo-latest"
+      })
+    ).toBe("qwen-plus-latest");
   });
 
   it("returns a success-oriented final summary with strengths, gaps, star replay, and resume CTA", async () => {
